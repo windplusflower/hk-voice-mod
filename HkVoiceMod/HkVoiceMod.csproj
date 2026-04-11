@@ -1,0 +1,62 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>false</ImplicitUsings>
+    <RootNamespace>HkVoiceMod</RootNamespace>
+    <AssemblyName>HkVoiceMod</AssemblyName>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <Deterministic>true</Deterministic>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <GameDir Condition="'$(GameDir)' == '' and '$(HK_GAME_DIR)' != ''">$(HK_GAME_DIR)</GameDir>
+    <GameManagedDir Condition="'$(GameManagedDir)' == '' and '$(GameDir)' != ''">$(GameDir)/hollow_knight_Data/Managed</GameManagedDir>
+    <UseHollowKnightReferences Condition="Exists('$(GameManagedDir)/Assembly-CSharp.dll') and Exists('$(GameManagedDir)/Modding.dll')">true</UseHollowKnightReferences>
+    <UseHollowKnightReferences Condition="'$(UseHollowKnightReferences)' == ''">false</UseHollowKnightReferences>
+    <DefineConstants Condition="'$(UseHollowKnightReferences)' != 'true'">$(DefineConstants);HKVOICE_STUBS</DefineConstants>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net472" Version="1.0.3" PrivateAssets="All" />
+    <PackageReference Include="NAudio" Version="2.3.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+    <PackageReference Include="Vosk" Version="0.3.38" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(UseHollowKnightReferences)' == 'true'">
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(GameManagedDir)/Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Modding">
+      <HintPath>$(GameManagedDir)/Modding.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="InControl">
+      <HintPath>$(GameManagedDir)/InControl.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine" Condition="Exists('$(GameManagedDir)/UnityEngine.dll')">
+      <HintPath>$(GameManagedDir)/UnityEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule" Condition="Exists('$(GameManagedDir)/UnityEngine.CoreModule.dll')">
+      <HintPath>$(GameManagedDir)/UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="StagePackage" AfterTargets="Build">
+    <PropertyGroup>
+      <PackageRoot>$(MSBuildProjectDirectory)/artifacts/package/$(AssemblyName)</PackageRoot>
+      <ModelReadmeDir>$(PackageRoot)/assets/vosk-model-cn</ModelReadmeDir>
+    </PropertyGroup>
+
+    <MakeDir Directories="$(PackageRoot);$(ModelReadmeDir)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PackageRoot)" />
+    <Copy SourceFiles="$(TargetDir)$(AssemblyName).pdb" DestinationFolder="$(PackageRoot)" Condition="Exists('$(TargetDir)$(AssemblyName).pdb')" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)/README.md" DestinationFolder="$(PackageRoot)" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)/assets/vosk-model-cn/README.md" DestinationFolder="$(ModelReadmeDir)" />
+  </Target>
+</Project>

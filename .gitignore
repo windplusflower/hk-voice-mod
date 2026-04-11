@@ -1,0 +1,11 @@
+.pct-state.json
+.DS_Store
+.idea/
+.vs/
+
+HkVoiceMod/bin/
+HkVoiceMod/obj/
+HkVoiceMod/artifacts/
+
+HkVoiceMod/assets/vosk-model-cn/*
+!HkVoiceMod/assets/vosk-model-cn/README.md
