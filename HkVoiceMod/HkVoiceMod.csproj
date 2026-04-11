@@ -11,7 +11,13 @@
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <GameDir Condition="'$(GameDir)' == '' and '$(HK_GAME_DIR)' != ''">$(HK_GAME_DIR)</GameDir>
     <GameManagedDir Condition="'$(GameManagedDir)' == '' and '$(GameDir)' != ''">$(GameDir)/hollow_knight_Data/Managed</GameManagedDir>
-    <UseHollowKnightReferences Condition="Exists('$(GameManagedDir)/Assembly-CSharp.dll') and Exists('$(GameManagedDir)/Modding.dll')">true</UseHollowKnightReferences>
+    <!--
+      检测真实 HK 安装：
+      - Linux/Proton: 只有 Assembly-CSharp.dll + UnityEngine，Modding.dll 通常没有
+      - Windows + HK Mod Loader: Assembly-CSharp.dll + Modding.dll + InControl.dll 都有
+      只要有 Assembly-CSharp.dll 就认为是真实安装
+    -->
+    <UseHollowKnightReferences Condition="Exists('$(GameManagedDir)/Assembly-CSharp.dll')">true</UseHollowKnightReferences>
     <UseHollowKnightReferences Condition="'$(UseHollowKnightReferences)' == ''">false</UseHollowKnightReferences>
     <DefineConstants Condition="'$(UseHollowKnightReferences)' != 'true'">$(DefineConstants);HKVOICE_STUBS</DefineConstants>
     <NoWarn>$(NoWarn);1591</NoWarn>
@@ -25,24 +31,44 @@
   </ItemGroup>
 
   <ItemGroup Condition="'$(UseHollowKnightReferences)' == 'true'">
+    <!-- 核心游戏程序集，始终存在 -->
     <Reference Include="Assembly-CSharp">
       <HintPath>$(GameManagedDir)/Assembly-CSharp.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <Reference Include="Modding">
+    <Reference Include="Assembly-CSharp-firstpass">
+      <HintPath>$(GameManagedDir)/Assembly-CSharp-firstpass.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- Mod Loader API，Windows HK 有，Linux Proton 可能没有 -->
+    <Reference Include="Modding" Condition="Exists('$(GameManagedDir)/Modding.dll')">
       <HintPath>$(GameManagedDir)/Modding.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <Reference Include="InControl">
+    <!-- InControl：可能在独立 DLL 或在 firstpass 里 -->
+    <Reference Include="InControl" Condition="Exists('$(GameManagedDir)/InControl.dll')">
       <HintPath>$(GameManagedDir)/InControl.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!-- Unity 引擎模块，Linux Proton 拆成多个独立 DLL -->
     <Reference Include="UnityEngine" Condition="Exists('$(GameManagedDir)/UnityEngine.dll')">
       <HintPath>$(GameManagedDir)/UnityEngine.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.CoreModule" Condition="Exists('$(GameManagedDir)/UnityEngine.CoreModule.dll')">
       <HintPath>$(GameManagedDir)/UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.InputLegacyModule" Condition="Exists('$(GameManagedDir)/UnityEngine.InputLegacyModule.dll')">
+      <HintPath>$(GameManagedDir)/UnityEngine.InputLegacyModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UI" Condition="Exists('$(GameManagedDir)/UnityEngine.UI.dll')">
+      <HintPath>$(GameManagedDir)/UnityEngine.UI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.Timeline" Condition="Exists('$(GameManagedDir)/Unity.Timeline.dll')">
+      <HintPath>$(GameManagedDir)/Unity.Timeline.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>
