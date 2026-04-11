@@ -7,5 +7,4 @@ HkVoiceMod/bin/
 HkVoiceMod/obj/
 HkVoiceMod/artifacts/
 
-HkVoiceMod/assets/vosk-model-cn/*
-!HkVoiceMod/assets/vosk-model-cn/README.md
+# Vosk model managed by git-lfs (tracked in LFS, not here)
