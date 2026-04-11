@@ -12,14 +12,19 @@
     <GameDir Condition="'$(GameDir)' == '' and '$(HK_GAME_DIR)' != ''">$(HK_GAME_DIR)</GameDir>
     <GameManagedDir Condition="'$(GameManagedDir)' == '' and '$(GameDir)' != ''">$(GameDir)/hollow_knight_Data/Managed</GameManagedDir>
     <!--
-      检测真实 HK 安装：
-      - Linux/Proton: 只有 Assembly-CSharp.dll + UnityEngine，Modding.dll 通常没有
-      - Windows + HK Mod Loader: Assembly-CSharp.dll + Modding.dll + InControl.dll 都有
-      只要有 Assembly-CSharp.dll 就认为是真实安装
+      HK 游戏引用分两层：
+      1. Mod API（Mod/IGlobalSettings 等）— 仅存在于 Windows HK Mod Loader 版 Assembly-CSharp
+         Linux 原版 HK（Steam Proton）没有此层，始终用 stubs
+      2. 核心游戏类型（HeroActions/InputHandler/HeroController 等）— 任何 HK 安装都有
+         Linux HK 的 Assembly-CSharp.dll 里有这些真实类型
+
+      HKVOICE_STUBS 始终启用：确保 Mod API 在所有平台上都能编译
+      HKVOICE_GAME_TYPES 用真实 DLL（可选）：在有 HK 安装时获得真实的游戏类型
     -->
-    <UseHollowKnightReferences Condition="Exists('$(GameManagedDir)/Assembly-CSharp.dll')">true</UseHollowKnightReferences>
-    <UseHollowKnightReferences Condition="'$(UseHollowKnightReferences)' == ''">false</UseHollowKnightReferences>
-    <DefineConstants Condition="'$(UseHollowKnightReferences)' != 'true'">$(DefineConstants);HKVOICE_STUBS</DefineConstants>
+    <UseHollowKnightGameTypes Condition="Exists('$(GameManagedDir)/Assembly-CSharp.dll')">true</UseHollowKnightGameTypes>
+    <UseHollowKnightGameTypes Condition="'$(UseHollowKnightGameTypes)' == ''">false</UseHollowKnightGameTypes>
+    <DefineConstants>$(DefineConstants);HKVOICE_STUBS</DefineConstants>
+    <DefineConstants Condition="'$(UseHollowKnightGameTypes)' == 'true'">$(DefineConstants);HKVOICE_GAME_TYPES</DefineConstants>
     <NoWarn>$(NoWarn);1591</NoWarn>
   </PropertyGroup>
 
@@ -30,8 +35,18 @@
     <PackageReference Include="Vosk" Version="0.3.38" />
   </ItemGroup>
 
-  <ItemGroup Condition="'$(UseHollowKnightReferences)' == 'true'">
-    <!-- 核心游戏程序集，始终存在 -->
+  <!--
+    HKVOICE_STUBS 始终定义，但当 HKVOICE_GAME_TYPES 也定义时（真实 HK DLL 可用），
+    排除会与真实类型冲突的 stubs（HeroActions/InputHandler/InControl/Unity 基础类型）。
+    Modding stubs 永远保留：Linux HK 没有 Mod/IGlobalSettings，始终需要
+  -->
+  <ItemGroup Condition="'$(UseHollowKnightGameTypes)' == 'true'">
+    <Compile Remove="Compatibility/Stubs/HollowKnightStubs.cs" />
+    <Compile Remove="Compatibility/Stubs/UnityStubs.cs" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(UseHollowKnightGameTypes)' == 'true'">
+    <!-- 核心游戏类型（HeroActions/InputHandler/HeroController 等），Linux HK 也有 -->
     <Reference Include="Assembly-CSharp">
       <HintPath>$(GameManagedDir)/Assembly-CSharp.dll</HintPath>
       <Private>false</Private>
@@ -40,12 +55,7 @@
       <HintPath>$(GameManagedDir)/Assembly-CSharp-firstpass.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <!-- Mod Loader API，Windows HK 有，Linux Proton 可能没有 -->
-    <Reference Include="Modding" Condition="Exists('$(GameManagedDir)/Modding.dll')">
-      <HintPath>$(GameManagedDir)/Modding.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <!-- InControl：可能在独立 DLL 或在 firstpass 里 -->
+    <!-- InControl -->
     <Reference Include="InControl" Condition="Exists('$(GameManagedDir)/InControl.dll')">
       <HintPath>$(GameManagedDir)/InControl.dll</HintPath>
       <Private>false</Private>
