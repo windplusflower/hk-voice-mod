@@ -44,6 +44,11 @@ public sealed class HeroActions
 
 namespace InControl
 {
+    public static class InputManager
+    {
+        public static ulong CurrentTick { get; set; }
+    }
+
     public sealed class PlayerAction
     {
         private bool _lastState;

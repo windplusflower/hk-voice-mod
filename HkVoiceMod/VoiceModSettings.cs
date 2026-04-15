@@ -8,11 +8,13 @@ namespace HkVoiceMod
     {
         public bool Enabled { get; set; } = true;
 
-        public string VoskModelPath { get; set; } = "assets/vosk-model-cn";
+        public string SherpaModelPath { get; set; } = "assets/sherpa-kws-cn";
 
         public float ShortPressDurationSeconds { get; set; } = 0.08f;
 
         public float TimedHoldDurationSeconds { get; set; } = 0.5f;
+
+        public int DuplicateCommandCooldownMilliseconds { get; set; } = 300;
 
         public int SampleRateHz { get; set; } = 16000;
 
@@ -27,9 +29,10 @@ namespace HkVoiceMod
             return new VoiceModSettings
             {
                 Enabled = Enabled,
-                VoskModelPath = VoskModelPath,
+                SherpaModelPath = SherpaModelPath,
                 ShortPressDurationSeconds = ShortPressDurationSeconds,
                 TimedHoldDurationSeconds = TimedHoldDurationSeconds,
+                DuplicateCommandCooldownMilliseconds = DuplicateCommandCooldownMilliseconds,
                 SampleRateHz = SampleRateHz,
                 CaptureBufferMilliseconds = CaptureBufferMilliseconds,
                 EnableVerboseLogging = EnableVerboseLogging,
@@ -39,12 +42,12 @@ namespace HkVoiceMod
 
         public string ResolveModelPath(string assemblyDirectory)
         {
-            if (Path.IsPathRooted(VoskModelPath))
+            if (Path.IsPathRooted(SherpaModelPath))
             {
-                return VoskModelPath;
+                return SherpaModelPath;
             }
 
-            return Path.GetFullPath(Path.Combine(assemblyDirectory, VoskModelPath));
+            return Path.GetFullPath(Path.Combine(assemblyDirectory, SherpaModelPath));
         }
     }
 }

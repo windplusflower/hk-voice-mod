@@ -2,7 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using HkVoiceMod.Input;
 using HkVoiceMod.Recognition;
-using HkVoiceMod.Recognition.Vosk;
+using HkVoiceMod.Recognition.Sherpa;
 using UnityEngine;
 
 namespace HkVoiceMod.Runtime
@@ -60,12 +60,6 @@ namespace HkVoiceMod.Runtime
         {
             ShutdownBackend();
 
-            _backend = new VoskVoiceRecognitionBackend(
-                _settings,
-                message => _mod?.LogInfo(message),
-                message => _mod?.LogWarn(message),
-                message => _mod?.LogError(message));
-
             if (!_settings.Enabled)
             {
                 _mod?.LogInfo("Voice backend disabled by settings.");
@@ -73,13 +67,30 @@ namespace HkVoiceMod.Runtime
                 return;
             }
 
+            var backend = new SherpaKeywordSpotterBackend(
+                _settings,
+                message => _mod?.LogDebug(message),
+                message => _mod?.LogInfo(message),
+                message => _mod?.LogWarn(message),
+                message => _mod?.LogError(message));
+
             try
             {
-                _backend.Start(_recognizedCommands);
+                backend.Start(_recognizedCommands);
+                _backend = backend;
                 _mod?.LogInfo("Voice backend started.");
             }
             catch (Exception ex)
             {
+                try
+                {
+                    backend.Dispose();
+                }
+                catch (Exception disposeEx)
+                {
+                    _mod?.LogWarn($"Voice backend cleanup after failed startup raised an exception: {disposeEx}");
+                }
+
                 _mod?.LogError($"Failed to start voice backend: {ex}");
             }
         }

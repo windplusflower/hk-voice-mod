@@ -1,4 +1,4 @@
-#if HKVOICE_STUBS
+#if HKVOICE_MODDING_STUBS
 using System.Collections.Generic;
 
 namespace Modding

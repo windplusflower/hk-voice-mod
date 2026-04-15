@@ -23,26 +23,34 @@
     -->
     <UseHollowKnightGameTypes Condition="Exists('$(GameManagedDir)/Assembly-CSharp.dll')">true</UseHollowKnightGameTypes>
     <UseHollowKnightGameTypes Condition="'$(UseHollowKnightGameTypes)' == ''">false</UseHollowKnightGameTypes>
+    <UseHollowKnightModdingApi Condition="'$(UseHollowKnightModdingApi)' == '' and '$(UseHollowKnightGameTypes)' == 'true'">true</UseHollowKnightModdingApi>
+    <UseHollowKnightModdingApi Condition="'$(UseHollowKnightModdingApi)' == ''">false</UseHollowKnightModdingApi>
     <DefineConstants>$(DefineConstants);HKVOICE_STUBS</DefineConstants>
     <DefineConstants Condition="'$(UseHollowKnightGameTypes)' == 'true'">$(DefineConstants);HKVOICE_GAME_TYPES</DefineConstants>
+    <DefineConstants Condition="'$(UseHollowKnightModdingApi)' != 'true'">$(DefineConstants);HKVOICE_MODDING_STUBS</DefineConstants>
     <NoWarn>$(NoWarn);1591</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net472" Version="1.0.3" PrivateAssets="All" />
     <PackageReference Include="NAudio" Version="2.3.0" />
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
-    <PackageReference Include="Vosk" Version="0.3.38" />
+    <PackageReference Include="org.k2fsa.sherpa.onnx" Version="1.12.36" />
+    <PackageReference Include="org.k2fsa.sherpa.onnx.runtime.win-x64" Version="1.12.36" GeneratePathProperty="true" PrivateAssets="All" ExcludeAssets="all" />
+    <PackageReference Include="org.k2fsa.sherpa.onnx.runtime.win-x86" Version="1.12.36" GeneratePathProperty="true" PrivateAssets="All" ExcludeAssets="all" />
   </ItemGroup>
 
   <!--
     HKVOICE_STUBS 始终定义，但当 HKVOICE_GAME_TYPES 也定义时（真实 HK DLL 可用），
     排除会与真实类型冲突的 stubs（HeroActions/InputHandler/InControl/Unity 基础类型）。
-    Modding stubs 永远保留：Linux HK 没有 Mod/IGlobalSettings，始终需要
+    Modding stubs 仅在未启用真实 Modding API 时保留，用于无 GameDir / 非游戏环境编译验证
   -->
   <ItemGroup Condition="'$(UseHollowKnightGameTypes)' == 'true'">
     <Compile Remove="Compatibility/Stubs/HollowKnightStubs.cs" />
     <Compile Remove="Compatibility/Stubs/UnityStubs.cs" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(UseHollowKnightModdingApi)' == 'true'">
+    <Compile Remove="Compatibility/Stubs/ModdingStubs.cs" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(UseHollowKnightGameTypes)' == 'true'">
@@ -86,13 +94,37 @@
   <Target Name="StagePackage" AfterTargets="Build">
     <PropertyGroup>
       <PackageRoot>$(MSBuildProjectDirectory)/artifacts/package/$(AssemblyName)</PackageRoot>
-      <ModelReadmeDir>$(PackageRoot)/assets/vosk-model-cn</ModelReadmeDir>
+      <ModelAssetsDir>$(PackageRoot)/assets/sherpa-kws-cn</ModelAssetsDir>
+      <NativeWinX64AssetsDir>$(PackageRoot)/native/win-x64</NativeWinX64AssetsDir>
+      <NativeWinX86AssetsDir>$(PackageRoot)/native/win-x86</NativeWinX86AssetsDir>
     </PropertyGroup>
 
-    <MakeDir Directories="$(PackageRoot);$(ModelReadmeDir)" />
+    <ItemGroup>
+      <SherpaWinX64NativeFiles Include="$(Pkgorg_k2fsa_sherpa_onnx_runtime_win-x64)\runtimes\win-x64\native\onnxruntime.dll" Condition="Exists('$(Pkgorg_k2fsa_sherpa_onnx_runtime_win-x64)\runtimes\win-x64\native\onnxruntime.dll')" />
+      <SherpaWinX64NativeFiles Include="$(Pkgorg_k2fsa_sherpa_onnx_runtime_win-x64)\runtimes\win-x64\native\sherpa-onnx-c-api.dll" Condition="Exists('$(Pkgorg_k2fsa_sherpa_onnx_runtime_win-x64)\runtimes\win-x64\native\sherpa-onnx-c-api.dll')" />
+      <SherpaWinX86NativeFiles Include="$(Pkgorg_k2fsa_sherpa_onnx_runtime_win-x86)\runtimes\win-x86\native\onnxruntime.dll" Condition="Exists('$(Pkgorg_k2fsa_sherpa_onnx_runtime_win-x86)\runtimes\win-x86\native\onnxruntime.dll')" />
+      <SherpaWinX86NativeFiles Include="$(Pkgorg_k2fsa_sherpa_onnx_runtime_win-x86)\runtimes\win-x86\native\sherpa-onnx-c-api.dll" Condition="Exists('$(Pkgorg_k2fsa_sherpa_onnx_runtime_win-x86)\runtimes\win-x86\native\sherpa-onnx-c-api.dll')" />
+      <RuntimePackageFiles Include="$(TargetDir)**/*"
+                           Exclude="$(TargetDir)$(AssemblyName).dll;$(TargetDir)$(AssemblyName).pdb;$(TargetDir)runtimes/**/*" />
+      <SherpaModelFiles Include="$(MSBuildProjectDirectory)/assets/sherpa-kws-cn/**/*" />
+    </ItemGroup>
+
+    <RemoveDir Directories="$(PackageRoot)" Condition="Exists('$(PackageRoot)')" />
+    <MakeDir Directories="$(PackageRoot);$(ModelAssetsDir);$(NativeWinX64AssetsDir);$(NativeWinX86AssetsDir)" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PackageRoot)" />
     <Copy SourceFiles="$(TargetDir)$(AssemblyName).pdb" DestinationFolder="$(PackageRoot)" Condition="Exists('$(TargetDir)$(AssemblyName).pdb')" />
+    <Copy SourceFiles="@(RuntimePackageFiles)"
+          DestinationFiles="@(RuntimePackageFiles->'$(PackageRoot)/%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)/README.md" DestinationFolder="$(PackageRoot)" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)/assets/vosk-model-cn/README.md" DestinationFolder="$(ModelReadmeDir)" />
+    <Copy SourceFiles="@(SherpaWinX64NativeFiles)"
+          DestinationFiles="@(SherpaWinX64NativeFiles->'$(NativeWinX64AssetsDir)/%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(SherpaWinX86NativeFiles)"
+          DestinationFiles="@(SherpaWinX86NativeFiles->'$(NativeWinX86AssetsDir)/%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(SherpaModelFiles)"
+          DestinationFiles="@(SherpaModelFiles->'$(ModelAssetsDir)/%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
   </Target>
 </Project>

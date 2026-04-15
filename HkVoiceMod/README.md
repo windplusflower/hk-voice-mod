@@ -1,26 +1,30 @@
 # HkVoiceMod
 
-离线中文语音控制 Hollow Knight 的验证版 mod。当前版本固定为 `Vosk + Windows + NAudio`，目标是先跑通“识别 -> 主线程队列 -> HeroActions 注入”整链路。
+离线中文语音控制 Hollow Knight 的验证版 mod。当前版本固定为 `Sherpa-ONNX KeywordSpotter + Windows + NAudio`，目标是先跑通“识别 -> 后台线程队列 -> 主线程 HeroActions 注入”整链路。
 
 ## 构建
 
 当前仓库支持两种构建模式：
 
 1. 编译验证模式：未提供 `GameDir` 时启用 stub，适合在当前 Linux/CI 环境跑 `dotnet build`。
-2. 真实 HK 构建模式：提供 `GameDir` 后链接 Hollow Knight / Modding API 程序集。
+2. 真实 HK 构建模式：提供 `GameDir` 后链接 Hollow Knight / Modding API 程序集，可用于实际装进游戏。
 
 ```bash
 dotnet build HkVoiceMod/HkVoiceMod.csproj
 dotnet build HkVoiceMod/HkVoiceMod.csproj -p:GameDir="C:\\Program Files (x86)\\Steam\\steamapps\\common\\Hollow Knight"
 ```
 
+要让 ModLoader 在游戏里识别这个 mod，必须使用**真实 HK 构建模式**，也就是提供 `GameDir` 并针对带 Modding API 的 Hollow Knight 安装构建；仅用于编译验证的 stub 构建不会被游戏当作真实 mod 入口加载。
+
 ## 运行时依赖
 
 - Windows 麦克风采集：`NAudio`
-- 识别：`Vosk`
-- 模型目录：默认按程序集相对路径解析 `assets/vosk-model-cn`
+- 识别：`SherpaOnnx.KeywordSpotter`
+- 模型目录：默认按程序集相对路径解析 `assets/sherpa-kws-cn`
 
-如果需要改成绝对路径，可在 global settings 中设置 `VoskModelPath`。
+如果需要改成绝对路径，可在 global settings 中设置 `SherpaModelPath`。为防止长音重复触发，同一命令默认还会应用 `300ms` 的简单冷却去重。
+
+当前仓库已经内置一套可直接运行的中文 Sherpa KWS 资源，来源于官方 `sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01` 模型，并整理为运行时固定文件名。
 
 ## 打包产物
 
@@ -30,36 +34,55 @@ dotnet build HkVoiceMod/HkVoiceMod.csproj -p:GameDir="C:\\Program Files (x86)\\S
 HkVoiceMod/artifacts/package/HkVoiceMod/
 ├── HkVoiceMod.dll
 ├── HkVoiceMod.pdb
+├── sherpa-onnx.dll
+├── NAudio*.dll
 ├── README.md
-└── assets/vosk-model-cn/README.md
+├── native/
+│   ├── win-x64/
+│   │   ├── onnxruntime.dll
+│   │   └── sherpa-onnx-c-api.dll
+│   └── win-x86/
+│       ├── onnxruntime.dll
+│       └── sherpa-onnx-c-api.dll
+└── assets/sherpa-kws-cn/
+    ├── README.md
+    ├── keywords_raw.txt
+    ├── keywords.txt
+    ├── encoder.onnx
+    ├── decoder.onnx
+    ├── joiner.onnx
+    ├── tokens.txt
+    └── ...
 ```
 
-Vosk 中文模型本体不进仓库，也不进入默认打包目录。
+当前工作区中的 Sherpa 关键词模型目录会随打包目录一起复制；托管依赖会放在 mod 根目录，Windows 原生依赖会放在 `native/win-x64` 和 `native/win-x86` 中，由运行时加载器按进程位数预加载 `onnxruntime.dll` 与 `sherpa-onnx-c-api.dll`。如果本地缺少模型文件，打包目录里也只会出现实际存在的内容。
 
 ## 模型放置
 
-将下载好的 Vosk 中文模型目录内容放到：
+如果本地还没有模型文件，将下载好的 Sherpa 中文关键词模型目录内容放到：
 
 ```text
-HkVoiceMod/artifacts/package/HkVoiceMod/assets/vosk-model-cn/
+HkVoiceMod/artifacts/package/HkVoiceMod/assets/sherpa-kws-cn/
 ```
 
 或者放到实际 mod 程序集同级的：
 
 ```text
-assets/vosk-model-cn/
+assets/sherpa-kws-cn/
 ```
+
+目录内至少需要包含：`encoder.onnx`、`decoder.onnx`、`joiner.onnx`、`tokens.txt`、`keywords.txt`。仓库自带的 `keywords.txt` 默认列出了固定命令词：`往上 往下 往左 往右 攻击 跳跃 冲刺 上吼 下砸 放波 停止`。
 
 ## 命令映射
 
-- `上` -> `up`，保持 `0.5s`
-- `下` -> `down`，保持 `0.5s`
-- `左` -> `left`，持续直到 `停`
-- `右` -> `right`，持续直到 `停`
-- `劈` -> `attack`，短按 `80ms`
-- `跳` -> `jump`，保持 `0.5s`
-- `冲` -> `dash`，短按 `80ms`
-- `吼` -> `up + cast`，短按 `80ms`
-- `砸` -> `down + cast`，短按 `80ms`
-- `波` -> `cast`，短按 `80ms`
-- `停` -> 释放 `left/right` 的持续按住态
+- `往上` -> `up`，保持 `0.5s`
+- `往下` -> `down`，保持 `0.5s`
+- `往左` -> `left`，持续直到 `停`
+- `往右` -> `right`，持续直到 `停`
+- `攻击` -> `attack`，短按 `80ms`
+- `跳跃` -> `jump`，保持 `0.5s`
+- `冲刺` -> `dash`，短按 `80ms`
+- `上吼` -> `up + cast`，短按 `80ms`
+- `下砸` -> `down + cast`，短按 `80ms`
+- `放波` -> `cast`，短按 `80ms`
+- `停止` -> 释放 `left/right` 的持续按住态

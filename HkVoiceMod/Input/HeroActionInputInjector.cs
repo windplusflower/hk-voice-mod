@@ -12,7 +12,6 @@ namespace HkVoiceMod.Input
         private readonly HashSet<HeroActionKey> _continuousHeldKeys = new HashSet<HeroActionKey>();
 
         private VoiceModSettings _settings;
-        private ulong _updateTick;
         private MethodInfo? _updateWithAxesMethod;
 
         public HeroActionInputInjector(VoiceModSettings settings)
@@ -125,7 +124,7 @@ namespace HkVoiceMod.Input
                 return;
             }
 
-            var tick = ++_updateTick;
+            var tick = GetCurrentInputManagerTick();
 
             CommitAction(inputActions.left, IsKeyPressed(HeroActionKey.Left), tick, unscaledDeltaTime);
             CommitAction(inputActions.right, IsKeyPressed(HeroActionKey.Right), tick, unscaledDeltaTime);
@@ -147,6 +146,11 @@ namespace HkVoiceMod.Input
         private static void CommitAction(PlayerAction action, bool state, ulong tick, float unscaledDeltaTime)
         {
             action?.CommitWithState(state, tick, unscaledDeltaTime);
+        }
+
+        private static ulong GetCurrentInputManagerTick()
+        {
+            return global::InControl.InputManager.CurrentTick;
         }
 
         private void SyncMoveVector(global::HeroActions inputActions, ulong tick, float unscaledDeltaTime)

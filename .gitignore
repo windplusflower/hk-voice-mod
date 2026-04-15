@@ -6,5 +6,6 @@
 HkVoiceMod/bin/
 HkVoiceMod/obj/
 HkVoiceMod/artifacts/
+.tmpinspect/
 
-# Vosk model managed by git-lfs (tracked in LFS, not here)
+# Sherpa model files are expected to be tracked via git-lfs when checked in
