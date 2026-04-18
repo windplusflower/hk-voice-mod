@@ -66,7 +66,7 @@ namespace HkVoiceMod
                 PrepareSettingsForRuntime(candidate, false);
                 Settings = candidate;
                 _runtimeController?.ApplySettings(Settings);
-                return ApplyVoiceSettingsResult.CreateSuccess("已应用新的唤醒词与阈值配置，并重启语音识别后端。");
+                return ApplyVoiceSettingsResult.CreateSuccess("已应用新的宏、停止词与阈值配置，并重启语音识别后端。");
             }
             catch (Exception ex)
             {
@@ -125,7 +125,9 @@ namespace HkVoiceMod
                     throw;
                 }
 
-                LogWarn($"检测到无效的语音关键词设置，已回退到默认配置：{ex.Message}");
+                LogWarn($"检测到无效的语音宏设置，已回退到默认配置：{ex.Message}");
+                settings.StopKeywordConfig = StopKeywordConfig.CreateDefault();
+                settings.MacroConfigs = new System.Collections.Generic.List<VoiceMacroConfig>();
                 settings.CommandKeywordConfigs = VoiceCommandCatalog.CreateDefaultKeywordConfigs();
                 PrepareSettingsForRuntimeCore(settings);
             }
@@ -133,12 +135,13 @@ namespace HkVoiceMod
 
         private void PrepareSettingsForRuntimeCore(VoiceModSettings settings)
         {
-            settings.EnsureCommandKeywordDefaults();
-            settings.NormalizeAndValidateCommandKeywordConfigs();
+            settings.MigrateLegacyCommandConfigsIfNeeded();
+            settings.EnsureMacroDefaults();
+            settings.NormalizeAndValidateMacroSettings();
 
             var assemblyDirectory = Path.GetDirectoryName(GetType().Assembly.Location) ?? AppDomain.CurrentDomain.BaseDirectory;
             var compiler = new SherpaKeywordCompiler(new ManagedPinyinProvider());
-            compiler.Compile(settings.ResolveModelPath(assemblyDirectory), settings.GetOrderedCommandKeywordConfigs());
+            compiler.Compile(settings.ResolveModelPath(assemblyDirectory), settings.StopKeywordConfig, settings.GetOrderedMacroConfigs());
         }
     }
 }
