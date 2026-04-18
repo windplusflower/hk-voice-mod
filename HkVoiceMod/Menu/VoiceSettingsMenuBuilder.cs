@@ -16,9 +16,22 @@ namespace HkVoiceMod.Menu
             }
 
             var draft = VoiceSettingsDraft.FromAppliedSettings(mod.Settings);
+            Action applyAction = () =>
+            {
+                var result = mod.TryApplyVoiceCommandSettings(draft.CreateSettingsSnapshot());
+                if (result.Success)
+                {
+                    mod.LogInfo(result.Message);
+                    return;
+                }
+
+                mod.LogWarn(result.Message);
+            };
+
             var elements = new List<Element>
             {
                 new TextPanel("自定义每个操作的唤醒词与阈值", 1000f),
+                new TextPanel("如果识别不出来，可以把命令增加到 3~4 个字，或适当调低阈值。", 1000f),
                 new TextPanel("修改后只有点击 Apply 才会保存并重启识别后端", 1000f)
             };
 
@@ -44,19 +57,52 @@ namespace HkVoiceMod.Menu
             elements.Add(new MenuButton(
                 "Apply",
                 "保存配置并重启语音识别后端",
-                _ =>
+                _ => applyAction()));
+
+            var menu = new Satchel.BetterMenus.Menu("HkVoiceMod", elements.ToArray());
+            var menuScreen = menu.GetMenuScreen(modListMenu);
+            var confirmMenu = Blueprints.CreateDialogMenu(
+                "检测到未应用修改",
+                "是否先 Apply 当前修改？",
+                new[] { "Apply 并返回", "直接返回", "继续编辑" },
+                choice =>
                 {
-                    var result = mod.TryApplyVoiceCommandSettings(draft.CreateSettingsSnapshot());
-                    if (result.Success)
+                    if (choice == "Apply 并返回")
                     {
-                        mod.LogInfo(result.Message);
+                        var result = mod.TryApplyVoiceCommandSettings(draft.CreateSettingsSnapshot());
+                        if (result.Success)
+                        {
+                            mod.LogInfo(result.Message);
+                            Satchel.BetterMenus.Utils.GoToMenuScreen(menu.returnScreen);
+                            return;
+                        }
+
+                        mod.LogWarn(result.Message);
+                        Satchel.BetterMenus.Utils.GoToMenuScreen(menu.menuScreen);
                         return;
                     }
 
-                    mod.LogWarn(result.Message);
-                }));
+                    if (choice == "直接返回")
+                    {
+                        Satchel.BetterMenus.Utils.GoToMenuScreen(menu.returnScreen);
+                        return;
+                    }
 
-            return new Satchel.BetterMenus.Menu("HkVoiceMod", elements.ToArray()).GetMenuScreen(modListMenu);
+                    Satchel.BetterMenus.Utils.GoToMenuScreen(menu.menuScreen);
+                });
+
+            menu.CancelAction = () =>
+            {
+                if (draft.HasPendingChanges(mod.Settings))
+                {
+                    menu.ShowDialog(confirmMenu);
+                    return;
+                }
+
+                Satchel.BetterMenus.Utils.GoToMenuScreen(menu.returnScreen);
+            };
+
+            return menuScreen;
         }
     }
 }
