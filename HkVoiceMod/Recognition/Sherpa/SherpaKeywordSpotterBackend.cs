@@ -17,28 +17,12 @@ namespace HkVoiceMod.Recognition.Sherpa
         private const int FeatureDim = 80;
         private const int KeywordSpotterThreads = 2;
 
-        private static readonly IReadOnlyDictionary<string, VoiceCommand> CommandLookup = new Dictionary<string, VoiceCommand>
-        {
-            ["往上"] = VoiceCommand.Up,
-            ["往下"] = VoiceCommand.Down,
-            ["往左"] = VoiceCommand.Left,
-            ["往右"] = VoiceCommand.Right,
-            ["攻击"] = VoiceCommand.Attack,
-            ["跳跃"] = VoiceCommand.Jump,
-            ["冲刺"] = VoiceCommand.Dash,
-            ["上吼"] = VoiceCommand.Howl,
-            ["下砸"] = VoiceCommand.Dive,
-            ["放波"] = VoiceCommand.Cast,
-            ["停止"] = VoiceCommand.Stop
-        };
-
         private static readonly string[] RequiredModelFiles =
         {
             "encoder.onnx",
             "decoder.onnx",
             "joiner.onnx",
-            "tokens.txt",
-            "keywords.txt"
+            "tokens.txt"
         };
 
         private readonly VoiceModSettings _settings;
@@ -48,6 +32,7 @@ namespace HkVoiceMod.Recognition.Sherpa
         private readonly Action<string> _logError;
         private readonly BlockingCollection<byte[]> _audioBuffers = new BlockingCollection<byte[]>(new ConcurrentQueue<byte[]>());
         private readonly Dictionary<VoiceCommand, DateTime> _lastEmittedCommands = new Dictionary<VoiceCommand, DateTime>();
+        private readonly IReadOnlyDictionary<string, VoiceCommand> _commandLookup;
 
         private ConcurrentQueue<RecognizedCommandEvent>? _outputQueue;
         private CancellationTokenSource? _cancellationTokenSource;
@@ -64,6 +49,9 @@ namespace HkVoiceMod.Recognition.Sherpa
             Action<string>? logError = null)
         {
             _settings = settings?.Clone() ?? new VoiceModSettings();
+            _settings.EnsureCommandKeywordDefaults();
+            _settings.NormalizeAndValidateCommandKeywordConfigs();
+            _commandLookup = BuildCommandLookup(_settings);
             _logDebug = logDebug ?? (_ => { });
             _logInfo = logInfo ?? (_ => { });
             _logWarn = logWarn ?? (_ => { });
@@ -229,7 +217,7 @@ namespace HkVoiceMod.Recognition.Sherpa
                 NumTrailingBlanks = 1,
                 KeywordsScore = 1.0f,
                 KeywordsThreshold = 0.25f,
-                KeywordsFile = Path.Combine(modelPath, "keywords.txt")
+                KeywordsFile = Path.Combine(modelPath, SherpaKeywordArtifacts.GeneratedDirectoryName, SherpaKeywordArtifacts.KeywordsFileName)
             };
         }
 
@@ -294,7 +282,7 @@ namespace HkVoiceMod.Recognition.Sherpa
                 return;
             }
 
-            if (!CommandLookup.TryGetValue(keyword, out var command))
+            if (!_commandLookup.TryGetValue(keyword, out var command))
             {
                 _logWarn($"Ignored non-whitelisted keyword result: '{keyword}'");
                 keywordSpotter.Reset(stream);
@@ -367,6 +355,23 @@ namespace HkVoiceMod.Recognition.Sherpa
             {
                 throw new FileNotFoundException($"Sherpa keyword spotting model is missing required files: {string.Join(", ", missingFiles)}");
             }
+
+            var compiledKeywordsPath = Path.Combine(modelPath, SherpaKeywordArtifacts.GeneratedDirectoryName, SherpaKeywordArtifacts.KeywordsFileName);
+            if (!File.Exists(compiledKeywordsPath))
+            {
+                throw new FileNotFoundException($"Sherpa generated keywords file was not found: {compiledKeywordsPath}");
+            }
+        }
+
+        private static IReadOnlyDictionary<string, VoiceCommand> BuildCommandLookup(VoiceModSettings settings)
+        {
+            var lookup = new Dictionary<string, VoiceCommand>(StringComparer.Ordinal);
+            foreach (var config in settings.GetOrderedCommandKeywordConfigs())
+            {
+                lookup.Add(VoiceModSettings.NormalizeWakeWord(config.WakeWord), config.Command);
+            }
+
+            return lookup;
         }
     }
 }
