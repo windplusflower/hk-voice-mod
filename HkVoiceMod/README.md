@@ -4,17 +4,20 @@
 
 ## 构建
 
-当前仓库支持两种构建模式：
+当前仓库现在只支持**真实 Hollow Knight 安装构建**。默认游戏目录已经指向本机：
 
-1. 编译验证模式：未提供 `GameDir` 时启用 stub，适合在当前 Linux/CI 环境跑 `dotnet build`。
-2. 真实 HK 构建模式：提供 `GameDir` 后链接 Hollow Knight / Modding API 程序集，可用于实际装进游戏。
+```text
+D:\SteamLibrary\steamapps\common\Hollow Knight
+```
+
+如果你的游戏装在别处，构建时覆盖 `GameDir` 即可。
 
 ```bash
 dotnet build HkVoiceMod/HkVoiceMod.csproj
 dotnet build HkVoiceMod/HkVoiceMod.csproj -p:GameDir="C:\\Program Files (x86)\\Steam\\steamapps\\common\\Hollow Knight"
 ```
 
-要让 ModLoader 在游戏里识别这个 mod，必须使用**真实 HK 构建模式**，也就是提供 `GameDir` 并针对带 Modding API 的 Hollow Knight 安装构建；仅用于编译验证的 stub 构建不会被游戏当作真实 mod 入口加载。
+构建前会强校验真实游戏 DLL 是否存在；找不到 `Assembly-CSharp.dll` / `Assembly-CSharp-firstpass.dll` 时会直接报错，而不会再回退到 stub。
 
 ## 运行时依赖
 
@@ -28,7 +31,7 @@ dotnet build HkVoiceMod/HkVoiceMod.csproj -p:GameDir="C:\\Program Files (x86)\\S
 
 ## 打包产物
 
-每次 `dotnet build` 后会生成：
+每次 `dotnet build` 后会先生成：
 
 ```text
 HkVoiceMod/artifacts/package/HkVoiceMod/
@@ -56,6 +59,14 @@ HkVoiceMod/artifacts/package/HkVoiceMod/
 ```
 
 当前工作区中的 Sherpa 关键词模型目录会随打包目录一起复制；托管依赖会放在 mod 根目录，Windows 原生依赖会放在 `native/win-x64` 和 `native/win-x86` 中，由运行时加载器按进程位数预加载 `onnxruntime.dll` 与 `sherpa-onnx-c-api.dll`。如果本地缺少模型文件，打包目录里也只会出现实际存在的内容。
+
+构建完成后，整个打包目录还会自动同步到游戏安装目录：
+
+```text
+D:\SteamLibrary\steamapps\common\Hollow Knight\hollow_knight_Data\Managed\Mods\HkVoiceMod\
+```
+
+这样构建完成后就可以直接打开游戏验证，无需再手动复制 mod 文件。
 
 ## 模型放置
 
