@@ -40,11 +40,7 @@ namespace HkVoiceMod
             return Settings.Clone();
         }
 
-        #if HKVOICE_MODDING_STUBS
-        internal void LogDebug(string message)
-        #else
         internal new void LogDebug(string message)
-        #endif
         {
             if (Settings.EnableVerboseLogging)
             {
@@ -57,20 +53,12 @@ namespace HkVoiceMod
             Log(message);
         }
 
-        #if HKVOICE_MODDING_STUBS
-        internal void LogWarn(string message)
-        #else
         internal new void LogWarn(string message)
-        #endif
         {
             Log($"[WARN] {message}");
         }
 
-        #if HKVOICE_MODDING_STUBS
-        internal void LogError(string message)
-        #else
         internal new void LogError(string message)
-        #endif
         {
             Log($"[ERROR] {message}");
         }
