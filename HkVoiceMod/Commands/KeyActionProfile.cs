@@ -19,6 +19,15 @@ namespace HkVoiceMod.Commands
             ReleaseOppositeHorizontalHold = releaseOppositeHorizontalHold;
         }
 
+        public KeyActionProfile(
+            KeyPressMode mode,
+            IReadOnlyList<HeroActionKey> keys,
+            float durationSeconds,
+            bool releaseOppositeHorizontalHold)
+            : this(VoiceCommand.Stop, mode, keys, durationSeconds, releaseOppositeHorizontalHold)
+        {
+        }
+
         public VoiceCommand Command { get; }
 
         public KeyPressMode Mode { get; }

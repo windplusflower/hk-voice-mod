@@ -27,6 +27,15 @@ namespace HkVoiceMod.Input
         public void Dispatch(VoiceCommand command, float realtimeSinceStartup)
         {
             var profile = VoiceCommandMap.GetProfile(command, _settings);
+            DispatchProfile(profile, realtimeSinceStartup);
+        }
+
+        public void DispatchProfile(KeyActionProfile profile, float realtimeSinceStartup)
+        {
+            if (profile == null)
+            {
+                throw new ArgumentNullException(nameof(profile));
+            }
 
             if (profile.Mode == KeyPressMode.ReleaseContinuous)
             {
