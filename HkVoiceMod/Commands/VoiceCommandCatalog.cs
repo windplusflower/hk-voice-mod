@@ -8,17 +8,17 @@ namespace HkVoiceMod.Commands
     {
         private static readonly VoiceCommandDefinition[] Definitions =
         {
-            new VoiceCommandDefinition(VoiceCommand.Up, "上移", "往上", 0.25f),
-            new VoiceCommandDefinition(VoiceCommand.Down, "下移", "往下", 0.25f),
-            new VoiceCommandDefinition(VoiceCommand.Left, "左移", "往左", 0.05f),
-            new VoiceCommandDefinition(VoiceCommand.Right, "右移", "往右", 0.05f),
-            new VoiceCommandDefinition(VoiceCommand.Attack, "攻击", "攻击", 0.25f),
-            new VoiceCommandDefinition(VoiceCommand.Jump, "跳跃", "跳跃", 0.25f),
-            new VoiceCommandDefinition(VoiceCommand.Dash, "冲刺", "冲刺", 0.12f),
-            new VoiceCommandDefinition(VoiceCommand.Howl, "上吼", "上吼", 0.25f),
-            new VoiceCommandDefinition(VoiceCommand.Dive, "下砸", "下砸", 0.25f),
-            new VoiceCommandDefinition(VoiceCommand.Cast, "放波", "放波", 0.25f),
-            new VoiceCommandDefinition(VoiceCommand.Stop, "停止", "停止", 0.25f)
+            new VoiceCommandDefinition(VoiceCommand.Up, "上移", "往上", 0.1f),
+            new VoiceCommandDefinition(VoiceCommand.Down, "下移", "往下", 0.1f),
+            new VoiceCommandDefinition(VoiceCommand.Left, "左移", "往左", 0.1f),
+            new VoiceCommandDefinition(VoiceCommand.Right, "右移", "往右", 0.1f),
+            new VoiceCommandDefinition(VoiceCommand.Attack, "攻击", "攻击", 0.1f),
+            new VoiceCommandDefinition(VoiceCommand.Jump, "跳跃", "跳跃", 0.1f),
+            new VoiceCommandDefinition(VoiceCommand.Dash, "冲刺", "冲刺", 0.1f),
+            new VoiceCommandDefinition(VoiceCommand.Howl, "上吼", "上吼", 0.1f),
+            new VoiceCommandDefinition(VoiceCommand.Dive, "下砸", "下砸", 0.1f),
+            new VoiceCommandDefinition(VoiceCommand.Cast, "放波", "放波", 0.1f),
+            new VoiceCommandDefinition(VoiceCommand.Stop, "停止", "停止", 0.1f)
         };
 
         public static IReadOnlyList<VoiceCommandDefinition> All => Definitions;
