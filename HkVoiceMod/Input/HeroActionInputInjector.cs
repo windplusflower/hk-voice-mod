@@ -126,16 +126,20 @@ namespace HkVoiceMod.Input
 
             var tick = GetCurrentInputManagerTick();
 
-            CommitAction(inputActions.left, IsKeyPressed(HeroActionKey.Left), tick, unscaledDeltaTime);
-            CommitAction(inputActions.right, IsKeyPressed(HeroActionKey.Right), tick, unscaledDeltaTime);
-            CommitAction(inputActions.up, IsKeyPressed(HeroActionKey.Up), tick, unscaledDeltaTime);
-            CommitAction(inputActions.down, IsKeyPressed(HeroActionKey.Down), tick, unscaledDeltaTime);
-            CommitAction(inputActions.attack, IsKeyPressed(HeroActionKey.Attack), tick, unscaledDeltaTime);
-            CommitAction(inputActions.jump, IsKeyPressed(HeroActionKey.Jump), tick, unscaledDeltaTime);
-            CommitAction(inputActions.dash, IsKeyPressed(HeroActionKey.Dash), tick, unscaledDeltaTime);
-            CommitAction(inputActions.cast, IsKeyPressed(HeroActionKey.Cast), tick, unscaledDeltaTime);
+            var moveVector = inputActions.moveVector;
+            var hardwareHorizontal = moveVector != null ? ReadHardwareAxis(moveVector.X) : 0f;
+            var hardwareVertical = moveVector != null ? ReadHardwareAxis(moveVector.Y) : 0f;
 
-            SyncMoveVector(inputActions, tick, unscaledDeltaTime);
+            CommitAction(inputActions.left, ReadHardwarePressed(inputActions.left) || IsKeyPressed(HeroActionKey.Left), tick, unscaledDeltaTime);
+            CommitAction(inputActions.right, ReadHardwarePressed(inputActions.right) || IsKeyPressed(HeroActionKey.Right), tick, unscaledDeltaTime);
+            CommitAction(inputActions.up, ReadHardwarePressed(inputActions.up) || IsKeyPressed(HeroActionKey.Up), tick, unscaledDeltaTime);
+            CommitAction(inputActions.down, ReadHardwarePressed(inputActions.down) || IsKeyPressed(HeroActionKey.Down), tick, unscaledDeltaTime);
+            CommitAction(inputActions.attack, ReadHardwarePressed(inputActions.attack) || IsKeyPressed(HeroActionKey.Attack), tick, unscaledDeltaTime);
+            CommitAction(inputActions.jump, ReadHardwarePressed(inputActions.jump) || IsKeyPressed(HeroActionKey.Jump), tick, unscaledDeltaTime);
+            CommitAction(inputActions.dash, ReadHardwarePressed(inputActions.dash) || IsKeyPressed(HeroActionKey.Dash), tick, unscaledDeltaTime);
+            CommitAction(inputActions.cast, ReadHardwarePressed(inputActions.cast) || IsKeyPressed(HeroActionKey.Cast), tick, unscaledDeltaTime);
+
+            SyncMoveVector(inputActions, hardwareHorizontal, hardwareVertical, tick, unscaledDeltaTime);
         }
 
         private bool IsKeyPressed(HeroActionKey key)
@@ -148,12 +152,27 @@ namespace HkVoiceMod.Input
             action?.CommitWithState(state, tick, unscaledDeltaTime);
         }
 
+        private static bool ReadHardwarePressed(PlayerAction? action)
+        {
+            return action != null && action.IsPressed;
+        }
+
+        private static float ReadHardwareAxis(float axis)
+        {
+            if (float.IsNaN(axis) || float.IsInfinity(axis))
+            {
+                return 0f;
+            }
+
+            return axis;
+        }
+
         private static ulong GetCurrentInputManagerTick()
         {
             return global::InControl.InputManager.CurrentTick;
         }
 
-        private void SyncMoveVector(global::HeroActions inputActions, ulong tick, float unscaledDeltaTime)
+        private void SyncMoveVector(global::HeroActions inputActions, float hardwareHorizontal, float hardwareVertical, ulong tick, float unscaledDeltaTime)
         {
             var moveVector = inputActions.moveVector;
             if (moveVector == null)
@@ -161,27 +180,30 @@ namespace HkVoiceMod.Input
                 return;
             }
 
-            var horizontal = 0f;
+            var voiceHorizontal = 0f;
             if (IsKeyPressed(HeroActionKey.Left))
             {
-                horizontal -= 1f;
+                voiceHorizontal -= 1f;
             }
 
             if (IsKeyPressed(HeroActionKey.Right))
             {
-                horizontal += 1f;
+                voiceHorizontal += 1f;
             }
 
-            var vertical = 0f;
+            var voiceVertical = 0f;
             if (IsKeyPressed(HeroActionKey.Down))
             {
-                vertical -= 1f;
+                voiceVertical -= 1f;
             }
 
             if (IsKeyPressed(HeroActionKey.Up))
             {
-                vertical += 1f;
+                voiceVertical += 1f;
             }
+
+            var horizontal = Math.Max(-1f, Math.Min(1f, hardwareHorizontal + voiceHorizontal));
+            var vertical = Math.Max(-1f, Math.Min(1f, hardwareVertical + voiceVertical));
 
             var updateWithAxes = ResolveUpdateWithAxesMethod(moveVector.GetType());
             updateWithAxes?.Invoke(moveVector, new object[] { horizontal, vertical, tick, unscaledDeltaTime });
