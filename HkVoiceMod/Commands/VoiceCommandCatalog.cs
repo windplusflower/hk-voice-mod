@@ -17,7 +17,7 @@ namespace HkVoiceMod.Commands
             new VoiceCommandDefinition(VoiceCommand.Dash, "冲刺", "冲刺", 0.1f),
             new VoiceCommandDefinition(VoiceCommand.Howl, "上吼", "上吼", 0.1f),
             new VoiceCommandDefinition(VoiceCommand.Dive, "下砸", "下砸", 0.1f),
-            new VoiceCommandDefinition(VoiceCommand.Cast, "放波", "放波", 0.1f),
+            new VoiceCommandDefinition(VoiceCommand.Cast, "法术", "法术", 0.1f),
             new VoiceCommandDefinition(VoiceCommand.Stop, "停止", "停止", 0.1f)
         };
 
