@@ -7,7 +7,7 @@ namespace HkVoiceMod.Recognition
     {
         bool IsRunning { get; }
 
-        void Start(ConcurrentQueue<RecognizedCommandEvent> outputQueue);
+        void Start(ConcurrentQueue<RecognizedTriggerEvent> outputQueue);
 
         void Stop();
     }
