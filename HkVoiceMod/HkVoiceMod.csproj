@@ -10,24 +10,14 @@
     <Deterministic>true</Deterministic>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <GameDir Condition="'$(GameDir)' == '' and '$(HK_GAME_DIR)' != ''">$(HK_GAME_DIR)</GameDir>
-    <GameManagedDir Condition="'$(GameManagedDir)' == '' and '$(GameDir)' != ''">$(GameDir)/hollow_knight_Data/Managed</GameManagedDir>
-    <!--
-      HK 游戏引用分两层：
-      1. Mod API（Mod/IGlobalSettings 等）— 仅存在于 Windows HK Mod Loader 版 Assembly-CSharp
-         Linux 原版 HK（Steam Proton）没有此层，始终用 stubs
-      2. 核心游戏类型（HeroActions/InputHandler/HeroController 等）— 任何 HK 安装都有
-         Linux HK 的 Assembly-CSharp.dll 里有这些真实类型
-
-      HKVOICE_STUBS 始终启用：确保 Mod API 在所有平台上都能编译
-      HKVOICE_GAME_TYPES 用真实 DLL（可选）：在有 HK 安装时获得真实的游戏类型
-    -->
-    <UseHollowKnightGameTypes Condition="Exists('$(GameManagedDir)/Assembly-CSharp.dll')">true</UseHollowKnightGameTypes>
-    <UseHollowKnightGameTypes Condition="'$(UseHollowKnightGameTypes)' == ''">false</UseHollowKnightGameTypes>
-    <UseHollowKnightModdingApi Condition="'$(UseHollowKnightModdingApi)' == '' and '$(UseHollowKnightGameTypes)' == 'true'">true</UseHollowKnightModdingApi>
-    <UseHollowKnightModdingApi Condition="'$(UseHollowKnightModdingApi)' == ''">false</UseHollowKnightModdingApi>
-    <DefineConstants>$(DefineConstants);HKVOICE_STUBS</DefineConstants>
-    <DefineConstants Condition="'$(UseHollowKnightGameTypes)' == 'true'">$(DefineConstants);HKVOICE_GAME_TYPES</DefineConstants>
-    <DefineConstants Condition="'$(UseHollowKnightModdingApi)' != 'true'">$(DefineConstants);HKVOICE_MODDING_STUBS</DefineConstants>
+    <GameDir Condition="'$(GameDir)' == ''">D:\SteamLibrary\steamapps\common\Hollow Knight</GameDir>
+    <GameManagedDir Condition="'$(GameManagedDir)' == ''">$(GameDir)\hollow_knight_Data\Managed</GameManagedDir>
+    <GameModsDir Condition="'$(GameModsDir)' == ''">$(GameManagedDir)\Mods</GameModsDir>
+    <PackageRoot>$(MSBuildProjectDirectory)\artifacts\package\$(AssemblyName)</PackageRoot>
+    <ModelAssetsDir>$(PackageRoot)\assets\sherpa-kws-cn</ModelAssetsDir>
+    <NativeWinX64AssetsDir>$(PackageRoot)\native\win-x64</NativeWinX64AssetsDir>
+    <NativeWinX86AssetsDir>$(PackageRoot)\native\win-x86</NativeWinX86AssetsDir>
+    <DeployModDir>$(GameModsDir)\$(AssemblyName)</DeployModDir>
     <NoWarn>$(NoWarn);1591</NoWarn>
   </PropertyGroup>
 
@@ -39,66 +29,49 @@
     <PackageReference Include="org.k2fsa.sherpa.onnx.runtime.win-x86" Version="1.12.36" GeneratePathProperty="true" PrivateAssets="All" ExcludeAssets="all" />
   </ItemGroup>
 
-  <!--
-    HKVOICE_STUBS 始终定义，但当 HKVOICE_GAME_TYPES 也定义时（真实 HK DLL 可用），
-    排除会与真实类型冲突的 stubs（HeroActions/InputHandler/InControl/Unity 基础类型）。
-    Modding stubs 仅在未启用真实 Modding API 时保留，用于无 GameDir / 非游戏环境编译验证
-  -->
-  <ItemGroup Condition="'$(UseHollowKnightGameTypes)' == 'true'">
-    <Compile Remove="Compatibility/Stubs/HollowKnightStubs.cs" />
-    <Compile Remove="Compatibility/Stubs/UnityStubs.cs" />
-  </ItemGroup>
+  <Target Name="ValidateGameInstall" BeforeTargets="PrepareForBuild">
+    <Error Condition="!Exists('$(GameDir)')"
+           Text="Hollow Knight GameDir does not exist: $(GameDir). Override it with -p:GameDir=... if needed." />
+    <Error Condition="!Exists('$(GameManagedDir)\Assembly-CSharp.dll')"
+           Text="Real Hollow Knight Assembly-CSharp.dll was not found under $(GameManagedDir)." />
+    <Error Condition="!Exists('$(GameManagedDir)\Assembly-CSharp-firstpass.dll')"
+           Text="Real Hollow Knight Assembly-CSharp-firstpass.dll was not found under $(GameManagedDir)." />
+    <Error Condition="!Exists('$(GameManagedDir)\UnityEngine.dll') and !Exists('$(GameManagedDir)\UnityEngine.CoreModule.dll')"
+           Text="Unity engine assemblies were not found under $(GameManagedDir)." />
+  </Target>
 
-  <ItemGroup Condition="'$(UseHollowKnightModdingApi)' == 'true'">
-    <Compile Remove="Compatibility/Stubs/ModdingStubs.cs" />
-  </ItemGroup>
-
-  <ItemGroup Condition="'$(UseHollowKnightGameTypes)' == 'true'">
-    <!-- 核心游戏类型（HeroActions/InputHandler/HeroController 等），Linux HK 也有 -->
+  <ItemGroup>
     <Reference Include="Assembly-CSharp">
-      <HintPath>$(GameManagedDir)/Assembly-CSharp.dll</HintPath>
+      <HintPath>$(GameManagedDir)\Assembly-CSharp.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="Assembly-CSharp-firstpass">
-      <HintPath>$(GameManagedDir)/Assembly-CSharp-firstpass.dll</HintPath>
+      <HintPath>$(GameManagedDir)\Assembly-CSharp-firstpass.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <!-- InControl -->
-    <Reference Include="InControl" Condition="Exists('$(GameManagedDir)/InControl.dll')">
-      <HintPath>$(GameManagedDir)/InControl.dll</HintPath>
+    <Reference Include="UnityEngine" Condition="Exists('$(GameManagedDir)\UnityEngine.dll')">
+      <HintPath>$(GameManagedDir)\UnityEngine.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <!-- Unity 引擎模块，Linux Proton 拆成多个独立 DLL -->
-    <Reference Include="UnityEngine" Condition="Exists('$(GameManagedDir)/UnityEngine.dll')">
-      <HintPath>$(GameManagedDir)/UnityEngine.dll</HintPath>
+    <Reference Include="UnityEngine.CoreModule" Condition="Exists('$(GameManagedDir)\UnityEngine.CoreModule.dll')">
+      <HintPath>$(GameManagedDir)\UnityEngine.CoreModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <Reference Include="UnityEngine.CoreModule" Condition="Exists('$(GameManagedDir)/UnityEngine.CoreModule.dll')">
-      <HintPath>$(GameManagedDir)/UnityEngine.CoreModule.dll</HintPath>
+    <Reference Include="UnityEngine.InputLegacyModule" Condition="Exists('$(GameManagedDir)\UnityEngine.InputLegacyModule.dll')">
+      <HintPath>$(GameManagedDir)\UnityEngine.InputLegacyModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <Reference Include="UnityEngine.InputLegacyModule" Condition="Exists('$(GameManagedDir)/UnityEngine.InputLegacyModule.dll')">
-      <HintPath>$(GameManagedDir)/UnityEngine.InputLegacyModule.dll</HintPath>
+    <Reference Include="UnityEngine.UI" Condition="Exists('$(GameManagedDir)\UnityEngine.UI.dll')">
+      <HintPath>$(GameManagedDir)\UnityEngine.UI.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <Reference Include="UnityEngine.UI" Condition="Exists('$(GameManagedDir)/UnityEngine.UI.dll')">
-      <HintPath>$(GameManagedDir)/UnityEngine.UI.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="Unity.Timeline" Condition="Exists('$(GameManagedDir)/Unity.Timeline.dll')">
-      <HintPath>$(GameManagedDir)/Unity.Timeline.dll</HintPath>
+    <Reference Include="Unity.Timeline" Condition="Exists('$(GameManagedDir)\Unity.Timeline.dll')">
+      <HintPath>$(GameManagedDir)\Unity.Timeline.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>
 
   <Target Name="StagePackage" AfterTargets="Build">
-    <PropertyGroup>
-      <PackageRoot>$(MSBuildProjectDirectory)/artifacts/package/$(AssemblyName)</PackageRoot>
-      <ModelAssetsDir>$(PackageRoot)/assets/sherpa-kws-cn</ModelAssetsDir>
-      <NativeWinX64AssetsDir>$(PackageRoot)/native/win-x64</NativeWinX64AssetsDir>
-      <NativeWinX86AssetsDir>$(PackageRoot)/native/win-x86</NativeWinX86AssetsDir>
-    </PropertyGroup>
-
     <ItemGroup>
       <SherpaWinX64NativeFiles Include="$(Pkgorg_k2fsa_sherpa_onnx_runtime_win-x64)\runtimes\win-x64\native\onnxruntime.dll" Condition="Exists('$(Pkgorg_k2fsa_sherpa_onnx_runtime_win-x64)\runtimes\win-x64\native\onnxruntime.dll')" />
       <SherpaWinX64NativeFiles Include="$(Pkgorg_k2fsa_sherpa_onnx_runtime_win-x64)\runtimes\win-x64\native\sherpa-onnx-c-api.dll" Condition="Exists('$(Pkgorg_k2fsa_sherpa_onnx_runtime_win-x64)\runtimes\win-x64\native\sherpa-onnx-c-api.dll')" />
@@ -106,7 +79,7 @@
       <SherpaWinX86NativeFiles Include="$(Pkgorg_k2fsa_sherpa_onnx_runtime_win-x86)\runtimes\win-x86\native\sherpa-onnx-c-api.dll" Condition="Exists('$(Pkgorg_k2fsa_sherpa_onnx_runtime_win-x86)\runtimes\win-x86\native\sherpa-onnx-c-api.dll')" />
       <RuntimePackageFiles Include="$(TargetDir)**/*"
                            Exclude="$(TargetDir)$(AssemblyName).dll;$(TargetDir)$(AssemblyName).pdb;$(TargetDir)runtimes/**/*" />
-      <SherpaModelFiles Include="$(MSBuildProjectDirectory)/assets/sherpa-kws-cn/**/*" />
+      <SherpaModelFiles Include="$(MSBuildProjectDirectory)\assets\sherpa-kws-cn\**\*" />
     </ItemGroup>
 
     <RemoveDir Directories="$(PackageRoot)" Condition="Exists('$(PackageRoot)')" />
@@ -114,17 +87,31 @@
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PackageRoot)" />
     <Copy SourceFiles="$(TargetDir)$(AssemblyName).pdb" DestinationFolder="$(PackageRoot)" Condition="Exists('$(TargetDir)$(AssemblyName).pdb')" />
     <Copy SourceFiles="@(RuntimePackageFiles)"
-          DestinationFiles="@(RuntimePackageFiles->'$(PackageRoot)/%(RecursiveDir)%(Filename)%(Extension)')"
+          DestinationFiles="@(RuntimePackageFiles->'$(PackageRoot)\%(RecursiveDir)%(Filename)%(Extension)')"
           SkipUnchangedFiles="true" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)/README.md" DestinationFolder="$(PackageRoot)" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\README.md" DestinationFolder="$(PackageRoot)" />
     <Copy SourceFiles="@(SherpaWinX64NativeFiles)"
-          DestinationFiles="@(SherpaWinX64NativeFiles->'$(NativeWinX64AssetsDir)/%(Filename)%(Extension)')"
+          DestinationFiles="@(SherpaWinX64NativeFiles->'$(NativeWinX64AssetsDir)\%(Filename)%(Extension)')"
           SkipUnchangedFiles="true" />
     <Copy SourceFiles="@(SherpaWinX86NativeFiles)"
-          DestinationFiles="@(SherpaWinX86NativeFiles->'$(NativeWinX86AssetsDir)/%(Filename)%(Extension)')"
+          DestinationFiles="@(SherpaWinX86NativeFiles->'$(NativeWinX86AssetsDir)\%(Filename)%(Extension)')"
           SkipUnchangedFiles="true" />
     <Copy SourceFiles="@(SherpaModelFiles)"
-          DestinationFiles="@(SherpaModelFiles->'$(ModelAssetsDir)/%(RecursiveDir)%(Filename)%(Extension)')"
+          DestinationFiles="@(SherpaModelFiles->'$(ModelAssetsDir)\%(RecursiveDir)%(Filename)%(Extension)')"
           SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="DeployToGameMods" AfterTargets="StagePackage">
+    <ItemGroup>
+      <PackagedModFiles Include="$(PackageRoot)\**\*" />
+    </ItemGroup>
+
+    <MakeDir Directories="$(GameModsDir)" Condition="!Exists('$(GameModsDir)')" />
+    <RemoveDir Directories="$(DeployModDir)" Condition="Exists('$(DeployModDir)')" />
+    <MakeDir Directories="$(DeployModDir)" />
+    <Copy SourceFiles="@(PackagedModFiles)"
+          DestinationFiles="@(PackagedModFiles->'$(DeployModDir)\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+    <Message Importance="high" Text="Deployed $(AssemblyName) to $(DeployModDir)" />
   </Target>
 </Project>
