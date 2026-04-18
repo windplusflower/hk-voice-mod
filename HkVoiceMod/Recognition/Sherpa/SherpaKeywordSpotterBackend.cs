@@ -31,10 +31,10 @@ namespace HkVoiceMod.Recognition.Sherpa
         private readonly Action<string> _logWarn;
         private readonly Action<string> _logError;
         private readonly BlockingCollection<byte[]> _audioBuffers = new BlockingCollection<byte[]>(new ConcurrentQueue<byte[]>());
-        private readonly Dictionary<VoiceCommand, DateTime> _lastEmittedCommands = new Dictionary<VoiceCommand, DateTime>();
-        private readonly IReadOnlyDictionary<string, VoiceCommand> _commandLookup;
+        private readonly Dictionary<string, DateTime> _lastEmittedTriggers = new Dictionary<string, DateTime>(StringComparer.Ordinal);
+        private readonly IReadOnlyDictionary<string, VoiceTriggerRef> _triggerLookup;
 
-        private ConcurrentQueue<RecognizedCommandEvent>? _outputQueue;
+        private ConcurrentQueue<RecognizedTriggerEvent>? _outputQueue;
         private CancellationTokenSource? _cancellationTokenSource;
         private Task? _workerTask;
         private WaveInEvent? _waveInEvent;
@@ -49,9 +49,10 @@ namespace HkVoiceMod.Recognition.Sherpa
             Action<string>? logError = null)
         {
             _settings = settings?.Clone() ?? new VoiceModSettings();
-            _settings.EnsureCommandKeywordDefaults();
-            _settings.NormalizeAndValidateCommandKeywordConfigs();
-            _commandLookup = BuildCommandLookup(_settings);
+            _settings.MigrateLegacyCommandConfigsIfNeeded();
+            _settings.EnsureMacroDefaults();
+            _settings.NormalizeAndValidateMacroSettings();
+            _triggerLookup = BuildTriggerLookup(_settings);
             _logDebug = logDebug ?? (_ => { });
             _logInfo = logInfo ?? (_ => { });
             _logWarn = logWarn ?? (_ => { });
@@ -60,7 +61,7 @@ namespace HkVoiceMod.Recognition.Sherpa
 
         public bool IsRunning => _workerTask != null && !_workerTask.IsCompleted;
 
-        public void Start(ConcurrentQueue<RecognizedCommandEvent> outputQueue)
+        public void Start(ConcurrentQueue<RecognizedTriggerEvent> outputQueue)
         {
             if (_disposed)
             {
@@ -282,35 +283,35 @@ namespace HkVoiceMod.Recognition.Sherpa
                 return;
             }
 
-            if (!_commandLookup.TryGetValue(keyword, out var command))
+            if (!_triggerLookup.TryGetValue(keyword, out var triggerRef))
             {
                 _logWarn($"Ignored non-whitelisted keyword result: '{keyword}'");
                 keywordSpotter.Reset(stream);
                 return;
             }
 
-            if (ShouldSuppressDuplicate(command))
+            if (ShouldSuppressDuplicate(triggerRef))
             {
                 _logDebug($"Suppressed duplicate keyword '{keyword}' during cooldown window.");
                 keywordSpotter.Reset(stream);
                 return;
             }
 
-            _outputQueue?.Enqueue(new RecognizedCommandEvent(command, keyword, (float)(DateTime.UtcNow - _startedUtc).TotalSeconds));
+            _outputQueue?.Enqueue(new RecognizedTriggerEvent(triggerRef.TriggerKind, triggerRef.TriggerId, keyword, (float)(DateTime.UtcNow - _startedUtc).TotalSeconds));
             keywordSpotter.Reset(stream);
         }
 
-        private bool ShouldSuppressDuplicate(VoiceCommand command)
+        private bool ShouldSuppressDuplicate(VoiceTriggerRef triggerRef)
         {
             var cooldown = TimeSpan.FromMilliseconds(Math.Max(0, _settings.DuplicateCommandCooldownMilliseconds));
             var now = DateTime.UtcNow;
 
-            if (cooldown > TimeSpan.Zero && _lastEmittedCommands.TryGetValue(command, out var previousEmission) && now - previousEmission < cooldown)
+            if (cooldown > TimeSpan.Zero && _lastEmittedTriggers.TryGetValue(triggerRef.TriggerId, out var previousEmission) && now - previousEmission < cooldown)
             {
                 return true;
             }
 
-            _lastEmittedCommands[command] = now;
+            _lastEmittedTriggers[triggerRef.TriggerId] = now;
             return false;
         }
 
@@ -363,12 +364,16 @@ namespace HkVoiceMod.Recognition.Sherpa
             }
         }
 
-        private static IReadOnlyDictionary<string, VoiceCommand> BuildCommandLookup(VoiceModSettings settings)
+        private static IReadOnlyDictionary<string, VoiceTriggerRef> BuildTriggerLookup(VoiceModSettings settings)
         {
-            var lookup = new Dictionary<string, VoiceCommand>(StringComparer.Ordinal);
-            foreach (var config in settings.GetOrderedCommandKeywordConfigs())
+            var lookup = new Dictionary<string, VoiceTriggerRef>(StringComparer.Ordinal)
             {
-                lookup.Add(VoiceModSettings.NormalizeWakeWord(config.WakeWord), config.Command);
+                [VoiceModSettings.NormalizeWakeWord(settings.StopKeywordConfig.WakeWord)] = new VoiceTriggerRef(VoiceTriggerKind.Stop, "stop")
+            };
+
+            foreach (var config in settings.GetOrderedMacroConfigs())
+            {
+                lookup.Add(VoiceModSettings.NormalizeWakeWord(config.WakeWord), new VoiceTriggerRef(VoiceTriggerKind.Macro, config.Id));
             }
 
             return lookup;

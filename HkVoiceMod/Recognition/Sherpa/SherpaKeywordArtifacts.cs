@@ -1,6 +1,4 @@
 using System.Collections.Generic;
-using HkVoiceMod.Commands;
-
 namespace HkVoiceMod.Recognition.Sherpa
 {
     public sealed class SherpaKeywordArtifacts
@@ -9,7 +7,7 @@ namespace HkVoiceMod.Recognition.Sherpa
         public const string RawKeywordsFileName = "keywords_raw.generated.txt";
         public const string KeywordsFileName = "keywords.generated.txt";
 
-        public SherpaKeywordArtifacts(string rawKeywordsPath, string compiledKeywordsPath, IReadOnlyDictionary<string, VoiceCommand> keywordLookup)
+        public SherpaKeywordArtifacts(string rawKeywordsPath, string compiledKeywordsPath, IReadOnlyDictionary<string, VoiceTriggerRef> keywordLookup)
         {
             RawKeywordsPath = rawKeywordsPath;
             CompiledKeywordsPath = compiledKeywordsPath;
@@ -20,6 +18,6 @@ namespace HkVoiceMod.Recognition.Sherpa
 
         public string CompiledKeywordsPath { get; }
 
-        public IReadOnlyDictionary<string, VoiceCommand> KeywordLookup { get; }
+        public IReadOnlyDictionary<string, VoiceTriggerRef> KeywordLookup { get; }
     }
 }
