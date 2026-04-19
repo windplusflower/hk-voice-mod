@@ -64,12 +64,17 @@ namespace HkVoiceMod.UI
         private InputField? _stopThresholdInput;
         private InputField? _delayInputField;
         private Text? _recordingTitleText;
+        private Text? _recordingHintText;
         private Text? _recordingPreviewText;
         private Text? _recordingStatusText;
         private Text? _delayHintText;
+        private Button? _recordingStartButton;
+        private Button? _recordingStopButton;
+        private Button? _recordingClearButton;
         private VoiceMacroConfig? _recordingMacro;
         private VoiceMacroConfig? _delayMacro;
         private List<VoiceMacroStep>? _recordingStartSnapshot;
+        private int _delayModalBlockedFrame = -1;
         private string _stopThresholdText = string.Empty;
         private bool _isClosingWindow;
 
@@ -98,6 +103,7 @@ namespace HkVoiceMod.UI
             _recordingMacro = null;
             _delayMacro = null;
             _recordingStartSnapshot = null;
+            _delayModalBlockedFrame = -1;
             _isClosingWindow = false;
 
             EnsureBuilt();
@@ -115,7 +121,7 @@ namespace HkVoiceMod.UI
 
             HideModalHostIfIdle();
             RebuildFromDraft();
-            SetStatus("录制时可按回车确认、按 Esc 取消，也可以插入延迟。", false);
+            SetStatus("打开录制页后默认不会立即采集；点击“开始录制”后才会追加步骤。", false);
             SetVisible(true);
             FocusInputField(_stopWakeWordInput);
         }
@@ -153,6 +159,11 @@ namespace HkVoiceMod.UI
 
             if (_delayModal != null && _delayModal.activeSelf)
             {
+                if (_delayModalBlockedFrame == Time.frameCount)
+                {
+                    return;
+                }
+
                 if (UnityEngine.Input.GetKeyDown(KeyCode.Return) || UnityEngine.Input.GetKeyDown(KeyCode.KeypadEnter))
                 {
                     ConfirmDelayInput();
@@ -347,8 +358,8 @@ namespace HkVoiceMod.UI
             modalLayout.childForceExpandHeight = false;
 
             _recordingTitleText = CreateText(modal.transform, "RecordingTitle", "录制宏", 34, TextColor, FontStyle.Bold, TextAnchor.MiddleLeft, TextAnchor.MiddleLeft, 44f);
-            var recordingHintText = CreateText(modal.transform, "RecordingHint", "按下游戏当前按键会直接加入步骤；退格删除末尾，回车确认，Esc 取消。", 24, MutedTextColor, FontStyle.Normal, TextAnchor.UpperLeft, TextAnchor.MiddleLeft, -1f);
-            ConfigureWrappedAutoHeightText(recordingHintText, 34f);
+            _recordingHintText = CreateText(modal.transform, "RecordingHint", "进入录制页后请先点击“开始录制”；停止录制时可使用 Backspace / Enter / Esc。", 24, MutedTextColor, FontStyle.Normal, TextAnchor.UpperLeft, TextAnchor.MiddleLeft, -1f);
+            ConfigureWrappedAutoHeightText(_recordingHintText, 34f);
 
             var previewPanel = CreatePanel(modal.transform, "RecordingPreviewPanel", SectionColor);
             AddLayoutElement(previewPanel, -1f, 220f, 1f);
@@ -372,9 +383,12 @@ namespace HkVoiceMod.UI
             var actionRow = CreateHorizontalGroup(modal.transform, "RecordingActions", 16f, 60f, new RectOffset(0, 0, 4, 0));
             actionRow.GetComponent<HorizontalLayoutGroup>().childAlignment = TextAnchor.MiddleRight;
             CreateSpacer(actionRow.transform, "RecordingActionSpacer", 1f);
+            CreateButton(actionRow.transform, "RecordingStart", "开始录制", SecondaryButtonWidth, PrimaryButtonColor, StartRecordingFromButton, out _recordingStartButton, out _);
+            CreateButton(actionRow.transform, "RecordingStop", "停止录制", SecondaryButtonWidth, SecondaryButtonColor, StopRecordingFromButton, out _recordingStopButton, out _);
+            CreateButton(actionRow.transform, "RecordingClear", "清空", SecondaryButtonWidth, DangerButtonColor, ClearRecordingFromButton, out _recordingClearButton, out _);
+            CreateButton(actionRow.transform, "RecordingDelay", "插入延迟", SecondaryButtonWidth, SecondaryButtonColor, OpenDelayModal, out _);
             CreateButton(actionRow.transform, "RecordingConfirm", "确认", SecondaryButtonWidth, PrimaryButtonColor, ConfirmRecordingFromButton, out _);
             CreateButton(actionRow.transform, "RecordingCancel", "取消", SecondaryButtonWidth, SecondaryButtonColor, CancelRecordingFromButton, out _);
-            CreateButton(actionRow.transform, "RecordingDelay", "插入延迟", SecondaryButtonWidth, SecondaryButtonColor, OpenDelayModal, out _);
 
             modal.SetActive(false);
             return modal;
@@ -637,7 +651,7 @@ namespace HkVoiceMod.UI
 
             VoiceMacroCaptureService.Instance.BeginCapture(
                 macro.Id,
-                actionKey => macro.Steps.Add(VoiceSettingsMenuBuilder.CreateActionStep(actionKey, _draft.CreateSettingsSnapshot())),
+                actionButton => macro.Steps.Add(VoiceSettingsMenuBuilder.CreateActionStep(actionButton, _draft.CreateSettingsSnapshot())),
                 () =>
                 {
                     if (macro.Steps.Count > 0)
@@ -645,9 +659,43 @@ namespace HkVoiceMod.UI
                         macro.Steps.RemoveAt(macro.Steps.Count - 1);
                     }
                 },
-                () => CloseRecordingModal(false, false),
-                () => CloseRecordingModal(true, false));
+                () => CloseRecordingModal(false, true),
+                () => CloseRecordingModal(true, true));
 
+            RefreshDynamicContent();
+        }
+
+        private void StartRecordingFromButton()
+        {
+            if (_recordingMacro == null)
+            {
+                return;
+            }
+
+            VoiceMacroCaptureService.Instance.StartCapture(_recordingMacro.Id);
+            RefreshDynamicContent();
+        }
+
+        private void StopRecordingFromButton()
+        {
+            if (_recordingMacro == null)
+            {
+                return;
+            }
+
+            VoiceMacroCaptureService.Instance.StopActiveCapture(_recordingMacro.Id);
+            RefreshDynamicContent();
+        }
+
+        private void ClearRecordingFromButton()
+        {
+            if (_recordingMacro == null)
+            {
+                return;
+            }
+
+            VoiceMacroCaptureService.Instance.StopActiveCapture(_recordingMacro.Id);
+            _recordingMacro.Steps.Clear();
             RefreshDynamicContent();
         }
 
@@ -701,6 +749,7 @@ namespace HkVoiceMod.UI
             VoiceMacroCaptureService.Instance.SuspendCapture();
             var pendingDelay = _draft.GetPendingDelayMilliseconds(_delayMacro.Id);
             SetInputFieldText(_delayInputField, pendingDelay > 0 ? pendingDelay.ToString(CultureInfo.InvariantCulture) : string.Empty);
+            _delayModalBlockedFrame = Time.frameCount;
             _recordingModal.SetActive(false);
             _delayModal.SetActive(true);
             RefreshDynamicContent();
@@ -744,6 +793,7 @@ namespace HkVoiceMod.UI
             }
 
             _delayMacro = null;
+            _delayModalBlockedFrame = -1;
             VoiceMacroCaptureService.Instance.ResumeCapture();
             RefreshDynamicContent();
             if (!appendDelay)
@@ -764,6 +814,7 @@ namespace HkVoiceMod.UI
             _recordingMacro = null;
             _delayMacro = null;
             _recordingStartSnapshot = null;
+            _delayModalBlockedFrame = -1;
 
             if (_delayModal != null)
             {
@@ -791,6 +842,32 @@ namespace HkVoiceMod.UI
 
             if (_recordingMacro != null)
             {
+                var isRecording = VoiceMacroCaptureService.Instance.IsCapturing(_recordingMacro.Id);
+                var hasSession = VoiceMacroCaptureService.Instance.HasCaptureSession(_recordingMacro.Id);
+                var isSuspended = VoiceMacroCaptureService.Instance.IsCaptureSuspended(_recordingMacro.Id);
+
+                if (_recordingHintText != null)
+                {
+                    _recordingHintText.text = isRecording
+                        ? "正在录制：按游戏当前绑定键会直接加入步骤；如需删除、确认或取消，请先点击“停止录制”。"
+                        : "当前未录制：点击“开始录制”后才会追加步骤；停止录制时可使用 Backspace / Enter / Esc。";
+                }
+
+                if (_recordingStartButton != null)
+                {
+                    _recordingStartButton.interactable = hasSession && !isRecording && !isSuspended;
+                }
+
+                if (_recordingStopButton != null)
+                {
+                    _recordingStopButton.interactable = hasSession && isRecording;
+                }
+
+                if (_recordingClearButton != null)
+                {
+                    _recordingClearButton.interactable = hasSession && !isRecording && _recordingMacro.Steps.Count > 0;
+                }
+
                 if (_recordingPreviewText != null)
                 {
                     _recordingPreviewText.text = VoiceSettingsMenuBuilder.FormatMacroSteps(_recordingMacro, VoiceMacroCaptureService.Instance.Resolver);
@@ -1073,6 +1150,11 @@ namespace HkVoiceMod.UI
 
         private void CreateButton(Transform parent, string name, string label, float width, Color backgroundColor, Action onClick, out Text labelText)
         {
+            CreateButton(parent, name, label, width, backgroundColor, onClick, out _, out labelText);
+        }
+
+        private void CreateButton(Transform parent, string name, string label, float width, Color backgroundColor, Action onClick, out Button button, out Text labelText)
+        {
             var buttonObject = new GameObject(name, typeof(RectTransform), typeof(Image), typeof(Button));
             buttonObject.transform.SetParent(parent, false);
             AddLayoutElement(buttonObject, width, FieldHeight, 0f);
@@ -1081,7 +1163,7 @@ namespace HkVoiceMod.UI
             image.color = backgroundColor;
             image.type = Image.Type.Sliced;
 
-            var button = buttonObject.GetComponent<Button>();
+            button = buttonObject.GetComponent<Button>();
             button.targetGraphic = image;
             button.transition = Selectable.Transition.ColorTint;
 

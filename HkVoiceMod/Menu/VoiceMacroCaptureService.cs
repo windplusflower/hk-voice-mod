@@ -13,9 +13,11 @@ namespace HkVoiceMod.Menu
         private readonly GameKeybindNameResolver _resolver = new GameKeybindNameResolver();
         private VoiceMacroCaptureBehaviour? _behaviour;
         private string? _capturingMacroId;
+        private bool _isCaptureActive;
         private bool _isCaptureSuspended;
+        private bool _resumeCaptureAfterSuspend;
         private int _resumeBlockedFrame = -1;
-        private Action<HeroActionKey>? _onActionKey;
+        private Action<global::GlobalEnums.HeroActionButton>? _onActionButton;
         private Action? _onDeleteLast;
         private Action? _onCancel;
         private Action? _onConfirm;
@@ -26,22 +28,39 @@ namespace HkVoiceMod.Menu
 
         public bool IsCapturing(string macroId)
         {
+            return string.Equals(_capturingMacroId, macroId, StringComparison.Ordinal) && _isCaptureActive;
+        }
+
+        public bool HasCaptureSession(string macroId)
+        {
             return string.Equals(_capturingMacroId, macroId, StringComparison.Ordinal);
+        }
+
+        public bool IsCaptureSuspended(string macroId)
+        {
+            return string.Equals(_capturingMacroId, macroId, StringComparison.Ordinal) && _isCaptureSuspended;
         }
 
         public string GetStatusText(string macroId)
         {
-            if (IsCapturing(macroId) && _isCaptureSuspended)
+            if (HasCaptureSession(macroId) && _isCaptureSuspended)
             {
-                return "录制已暂停：正在编辑 Delay 毫秒数；返回录制页后会继续捕获按键。";
+                return _resumeCaptureAfterSuspend
+                    ? "录制已暂停：正在编辑 Delay 毫秒数；返回录制页后会继续录制。"
+                    : "录制已暂停：正在编辑 Delay 毫秒数；返回录制页后保持停止录制。";
             }
 
-            return IsCapturing(macroId)
-                ? "录制中：按游戏当前绑定键追加步骤；Backspace 删除末尾，Esc 取消本次录制，Enter 确认本次录制。"
-                : "未录制：点击“开始录制”，再按游戏当前绑定键追加步骤。";
+            if (IsCapturing(macroId))
+            {
+                return "录制中：按游戏当前绑定键追加步骤；若要删除末尾、确认或取消，请先点击“停止录制”。";
+            }
+
+            return HasCaptureSession(macroId)
+                ? "未录制：点击“开始录制”后才会追加步骤；当前可用 Backspace 删除末尾、Enter 确认、Esc 取消。"
+                : "未录制：点击“开始录制”后才会追加步骤。";
         }
 
-        public void BeginCapture(string macroId, Action<HeroActionKey> onActionKey, Action onDeleteLast, Action onCancel, Action onConfirm)
+        public void BeginCapture(string macroId, Action<global::GlobalEnums.HeroActionButton> onActionButton, Action onDeleteLast, Action onCancel, Action onConfirm)
         {
             if (string.IsNullOrWhiteSpace(macroId))
             {
@@ -50,12 +69,40 @@ namespace HkVoiceMod.Menu
 
             EnsureMonitor();
             _capturingMacroId = macroId;
+            _isCaptureActive = false;
             _isCaptureSuspended = false;
-            _resumeBlockedFrame = -1;
-            _onActionKey = onActionKey ?? throw new ArgumentNullException(nameof(onActionKey));
+            _resumeCaptureAfterSuspend = false;
+            _resumeBlockedFrame = Time.frameCount;
+            _onActionButton = onActionButton ?? throw new ArgumentNullException(nameof(onActionButton));
             _onDeleteLast = onDeleteLast ?? throw new ArgumentNullException(nameof(onDeleteLast));
             _onCancel = onCancel ?? throw new ArgumentNullException(nameof(onCancel));
             _onConfirm = onConfirm ?? throw new ArgumentNullException(nameof(onConfirm));
+        }
+
+        public void StartCapture(string macroId)
+        {
+            if (!HasCaptureSession(macroId))
+            {
+                return;
+            }
+
+            _isCaptureActive = true;
+            _isCaptureSuspended = false;
+            _resumeCaptureAfterSuspend = false;
+            _resumeBlockedFrame = Time.frameCount;
+        }
+
+        public void StopActiveCapture(string macroId)
+        {
+            if (!HasCaptureSession(macroId))
+            {
+                return;
+            }
+
+            _isCaptureActive = false;
+            _isCaptureSuspended = false;
+            _resumeCaptureAfterSuspend = false;
+            _resumeBlockedFrame = -1;
         }
 
         public void SuspendCapture()
@@ -65,6 +112,8 @@ namespace HkVoiceMod.Menu
                 return;
             }
 
+            _resumeCaptureAfterSuspend = _isCaptureActive;
+            _isCaptureActive = false;
             _isCaptureSuspended = true;
         }
 
@@ -76,15 +125,19 @@ namespace HkVoiceMod.Menu
             }
 
             _isCaptureSuspended = false;
+            _isCaptureActive = _resumeCaptureAfterSuspend;
+            _resumeCaptureAfterSuspend = false;
             _resumeBlockedFrame = Time.frameCount;
         }
 
         public void StopCapture()
         {
             _capturingMacroId = null;
+            _isCaptureActive = false;
             _isCaptureSuspended = false;
+            _resumeCaptureAfterSuspend = false;
             _resumeBlockedFrame = -1;
-            _onActionKey = null;
+            _onActionButton = null;
             _onDeleteLast = null;
             _onCancel = null;
             _onConfirm = null;
@@ -129,29 +182,27 @@ namespace HkVoiceMod.Menu
 
         private void HandleKeyDown(KeyCode keyCode)
         {
-            if (keyCode == KeyCode.Backspace)
+            if (!_isCaptureActive)
             {
-                _onDeleteLast?.Invoke();
+                if (keyCode == KeyCode.Backspace)
+                {
+                    _onDeleteLast?.Invoke();
+                }
+                else if (keyCode == KeyCode.Escape)
+                {
+                    _onCancel?.Invoke();
+                }
+                else if (keyCode == KeyCode.Return || keyCode == KeyCode.KeypadEnter)
+                {
+                    _onConfirm?.Invoke();
+                }
+
                 return;
             }
 
-            if (keyCode == KeyCode.Escape)
+            if (_resolver.TryResolveFromCurrentBindings(keyCode, out var actionButton, out _))
             {
-                _onCancel?.Invoke();
-                StopCapture();
-                return;
-            }
-
-            if (keyCode == KeyCode.Return || keyCode == KeyCode.KeypadEnter)
-            {
-                _onConfirm?.Invoke();
-                StopCapture();
-                return;
-            }
-
-            if (_resolver.TryResolveFromCurrentBindings(keyCode, out var heroActionKey, out _))
-            {
-                _onActionKey?.Invoke(heroActionKey);
+                _onActionButton?.Invoke(actionButton);
             }
         }
 
