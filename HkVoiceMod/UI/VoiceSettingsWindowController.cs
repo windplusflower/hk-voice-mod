@@ -20,9 +20,9 @@ namespace HkVoiceMod.UI
         private const float ModalHeight = 600f;
         private const float DelayModalWidth = 720f;
         private const float DelayModalHeight = 320f;
-        private const float SectionSpacing = 18f;
-        private const float RowSpacing = 12f;
-        private const float FieldHeight = 56f;
+        private const float SectionSpacing = 8f;
+        private const float RowSpacing = 10f;
+        private const float FieldHeight = 50f;
         private const float StopWakeWordWidth = 360f;
         private const float StopThresholdWidth = 200f;
         private const float MacroWakeWordWidth = 460f;
@@ -31,8 +31,6 @@ namespace HkVoiceMod.UI
         private const float SecondaryButtonWidth = 140f;
         private const float DiscardButtonWidth = 220f;
         private const float DeleteButtonWidth = 120f;
-        private const float MacroRowPreferredHeight = 150f;
-        private const float MacroSummaryHeight = 52f;
 
         private static readonly Color FullscreenDimColor = new Color(0.03f, 0.04f, 0.08f, 0.82f);
         private static readonly Color WindowColor = new Color(0.10f, 0.12f, 0.16f, 0.97f);
@@ -117,7 +115,7 @@ namespace HkVoiceMod.UI
 
             HideModalHostIfIdle();
             RebuildFromDraft();
-            SetStatus("提示：录制弹窗里 Enter = 确认，Esc = 取消，Delay 会暂停录制并改填整数毫秒。", false);
+            SetStatus("录制时可按回车确认、按 Esc 取消，也可以插入延迟。", false);
             SetVisible(true);
             FocusInputField(_stopWakeWordInput);
         }
@@ -221,38 +219,41 @@ namespace HkVoiceMod.UI
             windowRect.anchoredPosition = Vector2.zero;
 
             var windowLayout = window.AddComponent<VerticalLayoutGroup>();
-            windowLayout.padding = new RectOffset(32, 32, 28, 28);
+            windowLayout.padding = new RectOffset(24, 24, 20, 20);
             windowLayout.spacing = SectionSpacing;
             windowLayout.childControlWidth = true;
             windowLayout.childControlHeight = true;
             windowLayout.childForceExpandHeight = false;
             windowLayout.childForceExpandWidth = true;
 
-            var header = CreateSection(window.transform, "Header", 124f);
+            var header = CreateSection(window.transform, "Header", 128f);
             var headerLayout = header.AddComponent<VerticalLayoutGroup>();
-            headerLayout.padding = new RectOffset(20, 20, 18, 18);
-            headerLayout.spacing = 10f;
+            headerLayout.padding = new RectOffset(16, 16, 10, 10);
+            headerLayout.spacing = 6f;
             headerLayout.childControlWidth = true;
             headerLayout.childControlHeight = true;
             headerLayout.childForceExpandHeight = false;
             headerLayout.childForceExpandWidth = true;
 
-            CreateText(header.transform, "Title", "HKVOICEMOD 自制设置窗口", 40, TextColor, FontStyle.Bold, TextAnchor.MiddleLeft, TextAnchor.MiddleLeft, 56f);
-            CreateText(header.transform, "Subtitle", "Stop 配置、双行宏列表、录制弹窗和 Delay 毫秒输入都在这里完成，不再走 BetterMenus 布局。", 24, MutedTextColor, FontStyle.Normal, TextAnchor.UpperLeft, TextAnchor.MiddleLeft, 34f);
-            _statusText = CreateText(header.transform, "Status", string.Empty, 24, MutedTextColor, FontStyle.Normal, TextAnchor.MiddleLeft, TextAnchor.MiddleLeft, 34f);
+            CreateText(header.transform, "Title", "语音设置", 36, TextColor, FontStyle.Bold, TextAnchor.MiddleLeft, TextAnchor.MiddleLeft, 42f);
+            CreateText(header.transform, "Subtitle", "在这里设置停止词和语音宏。", 20, MutedTextColor, FontStyle.Normal, TextAnchor.UpperLeft, TextAnchor.MiddleLeft, 22f);
+            _statusText = CreateText(header.transform, "Status", string.Empty, 20, MutedTextColor, FontStyle.Normal, TextAnchor.MiddleLeft, TextAnchor.MiddleLeft, 22f);
 
-            var stopSection = CreateSection(window.transform, "StopSection", 132f);
+            var stopSection = CreateSection(window.transform, "StopSection", 112f);
             var stopLayout = stopSection.AddComponent<VerticalLayoutGroup>();
-            stopLayout.padding = new RectOffset(20, 20, 18, 18);
-            stopLayout.spacing = 12f;
+            stopLayout.padding = new RectOffset(16, 16, 10, 10);
+            stopLayout.spacing = 8f;
             stopLayout.childControlWidth = true;
             stopLayout.childControlHeight = true;
             stopLayout.childForceExpandHeight = false;
             stopLayout.childForceExpandWidth = true;
 
-            CreateText(stopSection.transform, "StopTitle", "Stop Config", 30, TextColor, FontStyle.Bold, TextAnchor.MiddleLeft, TextAnchor.MiddleLeft, 38f);
-            var stopRow = CreateHorizontalGroup(stopSection.transform, "StopRow", 16f, 56f);
-            _stopWakeWordInput = CreateLabeledInput(stopRow.transform, "StopWakeWord", "Stop 唤醒词", StopWakeWordWidth, InputField.ContentType.Standard, value =>
+            CreateText(stopSection.transform, "StopTitle", "停止词", 26, TextColor, FontStyle.Bold, TextAnchor.MiddleLeft, TextAnchor.MiddleLeft, 30f);
+            var stopRow = CreateHorizontalGroup(stopSection.transform, "StopRow", 14f, FieldHeight);
+            var stopRowLayout = stopRow.GetComponent<HorizontalLayoutGroup>();
+            stopRowLayout.childControlWidth = true;
+            CreateText(stopRow.transform, "StopWakeWordLabel", "停止词", 22, TextColor, FontStyle.Bold, TextAnchor.MiddleLeft, TextAnchor.MiddleLeft, FieldHeight, false, 132f);
+            CreateInput(stopRow.transform, "StopWakeWord", "输入停止词", StopWakeWordWidth, InputField.ContentType.Standard, value =>
             {
                 if (_draft == null)
                 {
@@ -260,9 +261,15 @@ namespace HkVoiceMod.UI
                 }
 
                 _draft.PendingStopKeywordConfig.WakeWord = value ?? string.Empty;
-            });
+            }, out _stopWakeWordInput);
+            var stopWakeWordLayout = _stopWakeWordInput.GetComponent<LayoutElement>();
+            if (stopWakeWordLayout != null)
+            {
+                stopWakeWordLayout.flexibleWidth = 1f;
+            }
 
-            _stopThresholdInput = CreateLabeledInput(stopRow.transform, "StopThreshold", "Stop 阈值", StopThresholdWidth, InputField.ContentType.DecimalNumber, value =>
+            CreateText(stopRow.transform, "StopThresholdLabel", "阈值", 22, TextColor, FontStyle.Bold, TextAnchor.MiddleLeft, TextAnchor.MiddleLeft, FieldHeight, false, 92f);
+            CreateInput(stopRow.transform, "StopThreshold", "输入阈值", StopThresholdWidth, InputField.ContentType.DecimalNumber, value =>
             {
                 if (_draft == null)
                 {
@@ -283,33 +290,33 @@ namespace HkVoiceMod.UI
                 }
 
                 _draft.PendingStopKeywordConfig.KeywordThreshold = -1f;
-            });
+            }, out _stopThresholdInput);
 
             var macroSection = CreateSection(window.transform, "MacroSection", -1f, true);
             var macroLayout = macroSection.AddComponent<VerticalLayoutGroup>();
-            macroLayout.padding = new RectOffset(20, 20, 18, 18);
-            macroLayout.spacing = 14f;
+            macroLayout.padding = new RectOffset(16, 16, 12, 12);
+            macroLayout.spacing = 8f;
             macroLayout.childControlWidth = true;
             macroLayout.childControlHeight = true;
             macroLayout.childForceExpandHeight = false;
             macroLayout.childForceExpandWidth = true;
             AddLayoutElement(macroSection, -1f, -1f, 1f);
 
-            CreateText(macroSection.transform, "MacroTitle", "Macro List", 30, TextColor, FontStyle.Bold, TextAnchor.MiddleLeft, TextAnchor.MiddleLeft, 38f);
-            CreateText(macroSection.transform, "MacroHint", "每条宏稳定占两行：第一行编辑唤醒词 / 阈值 / 录制 / 删除，第二行显示完整摘要或当前录制结果。", 22, MutedTextColor, FontStyle.Normal, TextAnchor.UpperLeft, TextAnchor.MiddleLeft, 30f);
+            CreateText(macroSection.transform, "MacroTitle", "语音宏", 26, TextColor, FontStyle.Bold, TextAnchor.MiddleLeft, TextAnchor.MiddleLeft, 30f);
+            CreateText(macroSection.transform, "MacroHint", "设置唤醒词、阈值，并录制要执行的操作。", 18, MutedTextColor, FontStyle.Normal, TextAnchor.UpperLeft, TextAnchor.MiddleLeft, 22f);
 
             var macroScroll = CreateScrollView(macroSection.transform, "MacroScroll", out _macroListContent, 0f);
             AddLayoutElement(macroScroll, -1f, -1f, 1f);
 
-            var footer = CreateSection(window.transform, "Footer", 96f);
-            var footerLayout = CreateHorizontalLayout(footer.transform, 16f, new RectOffset(20, 20, 18, 18));
+            var footer = CreateSection(window.transform, "Footer", 74f);
+            var footerLayout = CreateHorizontalLayout(footer.transform, 10f, new RectOffset(12, 12, 12, 12));
             footerLayout.childAlignment = TextAnchor.MiddleRight;
 
-            CreateButton(footer.transform, "AddMacroButton", "Add Macro", SecondaryButtonWidth, SecondaryButtonColor, AddMacro, out _);
+            CreateButton(footer.transform, "AddMacroButton", "新增语音宏", SecondaryButtonWidth, SecondaryButtonColor, AddMacro, out _);
             CreateSpacer(footer.transform, "FooterSpacer", 1f);
-            CreateButton(footer.transform, "ApplyButton", "Apply", PrimaryButtonWidth, PrimaryButtonColor, ApplyCurrentDraft, out _);
-            CreateButton(footer.transform, "DiscardButton", "Discard", DiscardButtonWidth, DangerButtonColor, DiscardAndClose, out _);
-            CreateButton(footer.transform, "BackButton", "Back", PrimaryButtonWidth, SecondaryButtonColor, RequestBack, out _);
+            CreateButton(footer.transform, "ApplyButton", "保存", PrimaryButtonWidth, PrimaryButtonColor, ApplyCurrentDraft, out _);
+            CreateButton(footer.transform, "DiscardButton", "放弃更改", DiscardButtonWidth, DangerButtonColor, DiscardAndClose, out _);
+            CreateButton(footer.transform, "BackButton", "返回", PrimaryButtonWidth, SecondaryButtonColor, RequestBack, out _);
 
             _modalHost = CreatePanel(root.transform, "ModalHost", new Color(0f, 0f, 0f, 0.55f));
             StretchToParent(_modalHost);
@@ -340,7 +347,7 @@ namespace HkVoiceMod.UI
             modalLayout.childForceExpandHeight = false;
 
             _recordingTitleText = CreateText(modal.transform, "RecordingTitle", "录制宏", 34, TextColor, FontStyle.Bold, TextAnchor.MiddleLeft, TextAnchor.MiddleLeft, 44f);
-            var recordingHintText = CreateText(modal.transform, "RecordingHint", "按游戏当前绑定键会直接追加步骤；Backspace 删除末尾，Enter 确认，Esc 取消。", 24, MutedTextColor, FontStyle.Normal, TextAnchor.UpperLeft, TextAnchor.MiddleLeft, -1f);
+            var recordingHintText = CreateText(modal.transform, "RecordingHint", "按下游戏当前按键会直接加入步骤；退格删除末尾，回车确认，Esc 取消。", 24, MutedTextColor, FontStyle.Normal, TextAnchor.UpperLeft, TextAnchor.MiddleLeft, -1f);
             ConfigureWrappedAutoHeightText(recordingHintText, 34f);
 
             var previewPanel = CreatePanel(modal.transform, "RecordingPreviewPanel", SectionColor);
@@ -367,7 +374,7 @@ namespace HkVoiceMod.UI
             CreateSpacer(actionRow.transform, "RecordingActionSpacer", 1f);
             CreateButton(actionRow.transform, "RecordingConfirm", "确认", SecondaryButtonWidth, PrimaryButtonColor, ConfirmRecordingFromButton, out _);
             CreateButton(actionRow.transform, "RecordingCancel", "取消", SecondaryButtonWidth, SecondaryButtonColor, CancelRecordingFromButton, out _);
-            CreateButton(actionRow.transform, "RecordingDelay", "Delay", SecondaryButtonWidth, SecondaryButtonColor, OpenDelayModal, out _);
+            CreateButton(actionRow.transform, "RecordingDelay", "插入延迟", SecondaryButtonWidth, SecondaryButtonColor, OpenDelayModal, out _);
 
             modal.SetActive(false);
             return modal;
@@ -391,11 +398,11 @@ namespace HkVoiceMod.UI
             modalLayout.childForceExpandWidth = true;
             modalLayout.childForceExpandHeight = false;
 
-            CreateText(modal.transform, "DelayTitle", "Delay 毫秒输入", 34, TextColor, FontStyle.Bold, TextAnchor.MiddleLeft, TextAnchor.MiddleLeft, 44f);
-            var delayHintText = CreateText(modal.transform, "DelayHint", "输入 > 0 的整数毫秒。确认后会追加 Delay 步骤，并继续回到录制弹窗。", 24, MutedTextColor, FontStyle.Normal, TextAnchor.UpperLeft, TextAnchor.MiddleLeft, -1f);
-            ConfigureWrappedAutoHeightText(delayHintText, 54f);
+            CreateText(modal.transform, "DelayTitle", "添加延迟", 32, TextColor, FontStyle.Bold, TextAnchor.MiddleLeft, TextAnchor.MiddleLeft, 40f);
+            var delayHintText = CreateText(modal.transform, "DelayHint", "输入毫秒数，确认后会插入到当前录制里。", 22, MutedTextColor, FontStyle.Normal, TextAnchor.UpperLeft, TextAnchor.MiddleLeft, -1f);
+            ConfigureWrappedAutoHeightText(delayHintText, 46f);
 
-            _delayInputField = CreateLabeledInput(modal.transform, "DelayInput", "Delay 毫秒", 280f, InputField.ContentType.IntegerNumber, value =>
+            _delayInputField = CreateLabeledInput(modal.transform, "DelayInput", "延迟（毫秒）", 280f, InputField.ContentType.IntegerNumber, value =>
             {
                 if (_draft == null || _delayMacro == null)
                 {
@@ -418,8 +425,8 @@ namespace HkVoiceMod.UI
                 _draft.SetPendingDelayMilliseconds(_delayMacro.Id, 0);
             });
 
-            _delayHintText = CreateText(modal.transform, "DelayPreview", string.Empty, 24, TextColor, FontStyle.Normal, TextAnchor.UpperLeft, TextAnchor.MiddleLeft, -1f);
-            ConfigureWrappedAutoHeightText(_delayHintText, 34f);
+            _delayHintText = CreateText(modal.transform, "DelayPreview", string.Empty, 22, TextColor, FontStyle.Normal, TextAnchor.UpperLeft, TextAnchor.MiddleLeft, -1f);
+            ConfigureWrappedAutoHeightText(_delayHintText, 30f);
 
             var actionRow = CreateHorizontalGroup(modal.transform, "DelayActions", 16f, 60f, new RectOffset(0, 0, 4, 0));
             actionRow.GetComponent<HorizontalLayoutGroup>().childAlignment = TextAnchor.MiddleRight;
@@ -462,18 +469,21 @@ namespace HkVoiceMod.UI
         private MacroRowWidgets BuildMacroRow(RectTransform parent, VoiceMacroConfig macro, int displayIndex)
         {
             var rowRoot = CreatePanel(parent, $"MacroRow-{macro.Id}", RowColor);
-            AddLayoutElement(rowRoot, -1f, MacroRowPreferredHeight, 0f);
+            AddLayoutElement(rowRoot, -1f, -1f, 0f);
+            AddContentSizeFitter(rowRoot, ContentSizeFitter.FitMode.Unconstrained, ContentSizeFitter.FitMode.PreferredSize);
 
             var rowLayout = rowRoot.AddComponent<VerticalLayoutGroup>();
-            rowLayout.padding = new RectOffset(18, 18, 16, 16);
-            rowLayout.spacing = 10f;
+            rowLayout.padding = new RectOffset(14, 14, 10, 10);
+            rowLayout.spacing = 6f;
             rowLayout.childControlWidth = true;
             rowLayout.childControlHeight = true;
             rowLayout.childForceExpandWidth = true;
             rowLayout.childForceExpandHeight = false;
 
-            var topRow = CreateHorizontalGroup(rowRoot.transform, $"MacroTop-{macro.Id}", RowSpacing, 56f);
-            CreateText(topRow.transform, $"MacroLabel-{macro.Id}", $"宏 {displayIndex}", 24, TextColor, FontStyle.Bold, TextAnchor.MiddleCenter, TextAnchor.MiddleCenter, 56f, false, 90f);
+            var topRow = CreateHorizontalGroup(rowRoot.transform, $"MacroTop-{macro.Id}", RowSpacing, FieldHeight);
+            var topRowLayout = topRow.GetComponent<HorizontalLayoutGroup>();
+            topRowLayout.childControlWidth = true;
+            CreateText(topRow.transform, $"MacroLabel-{macro.Id}", $"宏 {displayIndex}", 20, TextColor, FontStyle.Bold, TextAnchor.MiddleCenter, TextAnchor.MiddleCenter, FieldHeight, false, 76f);
             CreateInput(topRow.transform, $"MacroWakeWord-{macro.Id}", "唤醒词", MacroWakeWordWidth, InputField.ContentType.Standard, value =>
             {
                 if (_draft == null)
@@ -484,6 +494,12 @@ namespace HkVoiceMod.UI
                 _draft.SelectMacro(macro.Id);
                 macro.WakeWord = value ?? string.Empty;
             }, out var wakeWordInput);
+            var wakeWordLayout = wakeWordInput.GetComponent<LayoutElement>();
+            if (wakeWordLayout != null)
+            {
+                wakeWordLayout.flexibleWidth = 1f;
+            }
+
             SetInputFieldText(wakeWordInput, macro.WakeWord ?? string.Empty);
 
             CreateInput(topRow.transform, $"MacroThreshold-{macro.Id}", "阈值", MacroThresholdWidth, InputField.ContentType.DecimalNumber, value =>
@@ -501,9 +517,9 @@ namespace HkVoiceMod.UI
             CreateButton(topRow.transform, $"MacroRecord-{macro.Id}", "录制", SecondaryButtonWidth, PrimaryButtonColor, () => OpenRecordingModal(macro), out var recordButtonText);
             CreateButton(topRow.transform, $"MacroDelete-{macro.Id}", "删除", DeleteButtonWidth, DangerButtonColor, () => DeleteMacro(macro.Id), out _);
 
-            var summaryText = CreateText(rowRoot.transform, $"MacroSummary-{macro.Id}", string.Empty, 24, MutedTextColor, FontStyle.Normal, TextAnchor.UpperLeft, TextAnchor.UpperLeft, MacroSummaryHeight, true);
+            var summaryText = CreateText(rowRoot.transform, $"MacroSummary-{macro.Id}", string.Empty, 20, MutedTextColor, FontStyle.Normal, TextAnchor.UpperLeft, TextAnchor.UpperLeft, -1f);
             summaryText.horizontalOverflow = HorizontalWrapMode.Wrap;
-            summaryText.verticalOverflow = VerticalWrapMode.Truncate;
+            ConfigureWrappedAutoHeightText(summaryText, 24f);
 
             return new MacroRowWidgets
             {
@@ -548,11 +564,11 @@ namespace HkVoiceMod.UI
 
             if (VoiceSettingsMenuBuilder.TryApplyDraft(_mod, _draft))
             {
-                SetStatus("已应用新的宏、停止词与阈值配置，并保持窗口打开。", false, true);
+                SetStatus("已保存新的语音宏、停止词和阈值设置。", false, true);
                 return;
             }
 
-            SetStatus("Apply 失败：请检查空唤醒词、无效阈值或空步骤宏。", true);
+            SetStatus("保存失败：请检查空唤醒词、无效阈值或空步骤。", true);
         }
 
         private void RequestBack()
@@ -592,7 +608,7 @@ namespace HkVoiceMod.UI
                 return;
             }
 
-            SetStatus("Back 未关闭：自动 Apply 失败。你可以继续修改，或点击 Discard 直接关闭。", true);
+            SetStatus("返回失败：自动保存未成功。你可以继续修改，或点击“放弃更改”直接关闭。", true);
         }
 
         private void DiscardAndClose()
@@ -701,7 +717,7 @@ namespace HkVoiceMod.UI
             var trimmed = (_delayInputField.text ?? string.Empty).Trim();
             if (!int.TryParse(trimmed, NumberStyles.Integer, CultureInfo.InvariantCulture, out var milliseconds) || milliseconds <= 0)
             {
-                SetStatus("Delay 必须是 > 0 的整数毫秒。", true);
+                SetStatus("延迟必须是大于 0 的整数毫秒。", true);
                 return;
             }
 
@@ -788,7 +804,7 @@ namespace HkVoiceMod.UI
 
             if (_draft != null && _delayMacro != null && _delayHintText != null)
             {
-                _delayHintText.text = $"当前将追加：{_draft.GetPendingDelayMilliseconds(_delayMacro.Id)} ms";
+                _delayHintText.text = $"当前将插入：{_draft.GetPendingDelayMilliseconds(_delayMacro.Id)} 毫秒";
             }
         }
 
@@ -967,7 +983,7 @@ namespace HkVoiceMod.UI
 
             var layout = contentObject.AddComponent<VerticalLayoutGroup>();
             layout.padding = new RectOffset(0, 8, 0, 0);
-            layout.spacing = 12f;
+            layout.spacing = 8f;
             layout.childControlWidth = true;
             layout.childControlHeight = true;
             layout.childForceExpandWidth = true;
@@ -982,8 +998,8 @@ namespace HkVoiceMod.UI
 
         private InputField CreateLabeledInput(Transform parent, string name, string labelText, float width, InputField.ContentType contentType, Action<string> onValueChanged)
         {
-            var group = CreateHorizontalGroup(parent, $"{name}Group", 14f, FieldHeight);
-            CreateText(group.transform, $"{name}Label", labelText, 24, TextColor, FontStyle.Bold, TextAnchor.MiddleLeft, TextAnchor.MiddleLeft, FieldHeight, false, 150f);
+            var group = CreateHorizontalGroup(parent, $"{name}Group", 10f, FieldHeight);
+            CreateText(group.transform, $"{name}Label", labelText, 22, TextColor, FontStyle.Bold, TextAnchor.MiddleLeft, TextAnchor.MiddleLeft, FieldHeight, false, 136f);
             CreateInput(group.transform, name, labelText, width, contentType, onValueChanged, out var inputField);
             return inputField;
         }
@@ -1017,31 +1033,38 @@ namespace HkVoiceMod.UI
             var textRect = textObject.GetComponent<RectTransform>();
             textRect.anchorMin = Vector2.zero;
             textRect.anchorMax = Vector2.one;
-            textRect.offsetMin = new Vector2(16f, 10f);
-            textRect.offsetMax = new Vector2(-16f, -10f);
+            textRect.offsetMin = new Vector2(12f, 8f);
+            textRect.offsetMax = new Vector2(-12f, -8f);
 
             var text = textObject.GetComponent<Text>();
             text.font = _font;
-            text.fontSize = 24;
+            text.fontSize = 22;
             text.color = TextColor;
             text.alignment = TextAnchor.MiddleLeft;
+            text.text = string.Empty;
+            text.horizontalOverflow = HorizontalWrapMode.Overflow;
+            text.verticalOverflow = VerticalWrapMode.Truncate;
             text.supportRichText = false;
+            text.raycastTarget = false;
 
             var placeholderObject = new GameObject("Placeholder", typeof(RectTransform), typeof(Text));
             placeholderObject.transform.SetParent(inputObject.transform, false);
             var placeholderRect = placeholderObject.GetComponent<RectTransform>();
             placeholderRect.anchorMin = Vector2.zero;
             placeholderRect.anchorMax = Vector2.one;
-            placeholderRect.offsetMin = new Vector2(16f, 10f);
-            placeholderRect.offsetMax = new Vector2(-16f, -10f);
+            placeholderRect.offsetMin = new Vector2(12f, 8f);
+            placeholderRect.offsetMax = new Vector2(-12f, -8f);
 
             var placeholderText = placeholderObject.GetComponent<Text>();
             placeholderText.font = _font;
-            placeholderText.fontSize = 24;
+            placeholderText.fontSize = 22;
             placeholderText.fontStyle = FontStyle.Italic;
             placeholderText.color = PlaceholderTextColor;
             placeholderText.alignment = TextAnchor.MiddleLeft;
+            placeholderText.horizontalOverflow = HorizontalWrapMode.Overflow;
+            placeholderText.verticalOverflow = VerticalWrapMode.Truncate;
             placeholderText.text = placeholder;
+            placeholderText.raycastTarget = false;
 
             inputField.textComponent = text;
             inputField.placeholder = placeholderText;
@@ -1052,7 +1075,7 @@ namespace HkVoiceMod.UI
         {
             var buttonObject = new GameObject(name, typeof(RectTransform), typeof(Image), typeof(Button));
             buttonObject.transform.SetParent(parent, false);
-            AddLayoutElement(buttonObject, width, 56f, 0f);
+            AddLayoutElement(buttonObject, width, FieldHeight, 0f);
 
             var image = buttonObject.GetComponent<Image>();
             image.color = backgroundColor;
@@ -1071,7 +1094,17 @@ namespace HkVoiceMod.UI
             button.colors = colors;
             button.onClick.AddListener(() => onClick());
 
-            labelText = CreateText(buttonObject.transform, $"{name}Label", label, 24, TextColor, FontStyle.Bold, TextAnchor.MiddleCenter, TextAnchor.MiddleCenter, 56f);
+            labelText = CreateText(buttonObject.transform, $"{name}Label", label, 22, TextColor, FontStyle.Bold, TextAnchor.MiddleCenter, TextAnchor.MiddleCenter, FieldHeight);
+            StretchToParent(labelText.gameObject);
+            var labelRect = labelText.GetComponent<RectTransform>();
+            labelRect.offsetMin = new Vector2(10f, 6f);
+            labelRect.offsetMax = new Vector2(-10f, -6f);
+            labelText.horizontalOverflow = HorizontalWrapMode.Wrap;
+            labelText.verticalOverflow = VerticalWrapMode.Truncate;
+            labelText.resizeTextForBestFit = true;
+            labelText.resizeTextMinSize = 18;
+            labelText.resizeTextMaxSize = 22;
+            labelText.raycastTarget = false;
         }
 
         private GameObject CreatePanel(Transform parent, string name, Color color)
