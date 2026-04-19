@@ -83,8 +83,11 @@ namespace HkVoiceMod.Runtime
                     continue;
                 }
 
-                injector.DispatchProfile(
-                    new KeyActionProfile(step.PressMode, step.Keys, step.DurationSeconds, step.ReleaseOppositeHorizontalHold),
+                injector.DispatchMacroActions(
+                    step.GetNormalizedActionButtons(),
+                    step.PressMode,
+                    step.DurationSeconds,
+                    step.ReleaseOppositeHorizontalHold,
                     realtimeSinceStartup);
             }
 

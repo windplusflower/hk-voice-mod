@@ -8,8 +8,8 @@ namespace HkVoiceMod.Input
 {
     public sealed class HeroActionInputInjector : IInputInjector
     {
-        private readonly Dictionary<HeroActionKey, float> _scheduledReleaseTimes = new Dictionary<HeroActionKey, float>();
-        private readonly HashSet<HeroActionKey> _continuousHeldKeys = new HashSet<HeroActionKey>();
+        private readonly Dictionary<global::GlobalEnums.HeroActionButton, float> _scheduledReleaseTimes = new Dictionary<global::GlobalEnums.HeroActionButton, float>();
+        private readonly HashSet<global::GlobalEnums.HeroActionButton> _continuousHeldButtons = new HashSet<global::GlobalEnums.HeroActionButton>();
 
         private VoiceModSettings _settings;
         private MethodInfo? _updateWithAxesMethod;
@@ -37,37 +37,52 @@ namespace HkVoiceMod.Input
                 throw new ArgumentNullException(nameof(profile));
             }
 
-            if (profile.Mode == KeyPressMode.ReleaseContinuous)
+            DispatchActionButtons(HeroActionButtonCatalog.MapLegacyKeys(profile.Keys), profile.Mode, profile.DurationSeconds, profile.ReleaseOppositeHorizontalHold, realtimeSinceStartup);
+        }
+
+        public void DispatchMacroActions(IReadOnlyList<global::GlobalEnums.HeroActionButton> actionButtons, KeyPressMode mode, float durationSeconds, bool releaseOppositeHorizontalHold, float realtimeSinceStartup)
+        {
+            DispatchActionButtons(actionButtons, mode, durationSeconds, releaseOppositeHorizontalHold, realtimeSinceStartup);
+        }
+
+        private void DispatchActionButtons(IReadOnlyList<global::GlobalEnums.HeroActionButton> actionButtons, KeyPressMode mode, float durationSeconds, bool releaseOppositeHorizontalHold, float realtimeSinceStartup)
+        {
+            if (actionButtons == null)
+            {
+                throw new ArgumentNullException(nameof(actionButtons));
+            }
+
+            if (mode == KeyPressMode.ReleaseContinuous)
             {
                 ReleaseContinuousInputs();
                 return;
             }
 
-            if (profile.Mode == KeyPressMode.ContinuousHold)
+            if (mode == KeyPressMode.ContinuousHold)
             {
-                foreach (var key in profile.Keys)
+                foreach (var actionButton in actionButtons)
                 {
-                    if (profile.ReleaseOppositeHorizontalHold)
+                    if (releaseOppositeHorizontalHold)
                     {
-                        ReleaseOppositeHorizontalHold(key);
+                        ReleaseOppositeHorizontalHold(actionButton);
                     }
 
-                    _continuousHeldKeys.Add(key);
-                    _scheduledReleaseTimes.Remove(key);
+                    _continuousHeldButtons.Add(actionButton);
+                    _scheduledReleaseTimes.Remove(actionButton);
                 }
 
                 return;
             }
 
-            foreach (var key in profile.Keys)
+            foreach (var actionButton in actionButtons)
             {
-                var releaseAt = realtimeSinceStartup + profile.DurationSeconds;
-                if (_scheduledReleaseTimes.TryGetValue(key, out var existingReleaseAt) && existingReleaseAt > releaseAt)
+                var releaseAt = realtimeSinceStartup + durationSeconds;
+                if (_scheduledReleaseTimes.TryGetValue(actionButton, out var existingReleaseAt) && existingReleaseAt > releaseAt)
                 {
                     continue;
                 }
 
-                _scheduledReleaseTimes[key] = releaseAt;
+                _scheduledReleaseTimes[actionButton] = releaseAt;
             }
         }
 
@@ -79,13 +94,13 @@ namespace HkVoiceMod.Input
 
         public void ReleaseContinuousInputs()
         {
-            _continuousHeldKeys.Remove(HeroActionKey.Left);
-            _continuousHeldKeys.Remove(HeroActionKey.Right);
+            _continuousHeldButtons.Remove(global::GlobalEnums.HeroActionButton.LEFT);
+            _continuousHeldButtons.Remove(global::GlobalEnums.HeroActionButton.RIGHT);
         }
 
         public void ResetAllInputs(float realtimeSinceStartup)
         {
-            _continuousHeldKeys.Clear();
+            _continuousHeldButtons.Clear();
             _scheduledReleaseTimes.Clear();
             ApplyCurrentInputState(0f, realtimeSinceStartup);
         }
@@ -97,7 +112,7 @@ namespace HkVoiceMod.Input
                 return;
             }
 
-            List<HeroActionKey>? expiredKeys = null;
+            List<global::GlobalEnums.HeroActionButton>? expiredKeys = null;
             foreach (var entry in _scheduledReleaseTimes)
             {
                 if (entry.Value > realtimeSinceStartup)
@@ -107,7 +122,7 @@ namespace HkVoiceMod.Input
 
                 if (expiredKeys == null)
                 {
-                    expiredKeys = new List<HeroActionKey>();
+                    expiredKeys = new List<global::GlobalEnums.HeroActionButton>();
                 }
 
                 expiredKeys.Add(entry.Key);
@@ -127,7 +142,12 @@ namespace HkVoiceMod.Input
         private void ApplyCurrentInputState(float unscaledDeltaTime, float realtimeSinceStartup)
         {
             var inputHandler = global::InputHandler.Instance;
-            var inputActions = inputHandler?.inputActions;
+            if (inputHandler == null)
+            {
+                return;
+            }
+
+            var inputActions = inputHandler.inputActions;
             if (inputActions == null)
             {
                 return;
@@ -139,21 +159,23 @@ namespace HkVoiceMod.Input
             var hardwareHorizontal = moveVector != null ? ReadHardwareAxis(moveVector.X) : 0f;
             var hardwareVertical = moveVector != null ? ReadHardwareAxis(moveVector.Y) : 0f;
 
-            CommitAction(inputActions.left, ReadHardwarePressed(inputActions.left) || IsKeyPressed(HeroActionKey.Left), tick, unscaledDeltaTime);
-            CommitAction(inputActions.right, ReadHardwarePressed(inputActions.right) || IsKeyPressed(HeroActionKey.Right), tick, unscaledDeltaTime);
-            CommitAction(inputActions.up, ReadHardwarePressed(inputActions.up) || IsKeyPressed(HeroActionKey.Up), tick, unscaledDeltaTime);
-            CommitAction(inputActions.down, ReadHardwarePressed(inputActions.down) || IsKeyPressed(HeroActionKey.Down), tick, unscaledDeltaTime);
-            CommitAction(inputActions.attack, ReadHardwarePressed(inputActions.attack) || IsKeyPressed(HeroActionKey.Attack), tick, unscaledDeltaTime);
-            CommitAction(inputActions.jump, ReadHardwarePressed(inputActions.jump) || IsKeyPressed(HeroActionKey.Jump), tick, unscaledDeltaTime);
-            CommitAction(inputActions.dash, ReadHardwarePressed(inputActions.dash) || IsKeyPressed(HeroActionKey.Dash), tick, unscaledDeltaTime);
-            CommitAction(inputActions.cast, ReadHardwarePressed(inputActions.cast) || IsKeyPressed(HeroActionKey.Cast), tick, unscaledDeltaTime);
+            foreach (var actionButton in HeroActionButtonCatalog.SupportedGameplayButtons)
+            {
+                var action = ResolvePlayerAction(inputHandler, actionButton);
+                if (action == null)
+                {
+                    continue;
+                }
+
+                CommitAction(action, ReadHardwarePressed(action) || IsActionButtonPressed(actionButton), tick, unscaledDeltaTime);
+            }
 
             SyncMoveVector(inputActions, hardwareHorizontal, hardwareVertical, tick, unscaledDeltaTime);
         }
 
-        private bool IsKeyPressed(HeroActionKey key)
+        private bool IsActionButtonPressed(global::GlobalEnums.HeroActionButton actionButton)
         {
-            return _continuousHeldKeys.Contains(key) || _scheduledReleaseTimes.ContainsKey(key);
+            return _continuousHeldButtons.Contains(actionButton) || _scheduledReleaseTimes.ContainsKey(actionButton);
         }
 
         private static void CommitAction(PlayerAction action, bool state, ulong tick, float unscaledDeltaTime)
@@ -190,23 +212,23 @@ namespace HkVoiceMod.Input
             }
 
             var voiceHorizontal = 0f;
-            if (IsKeyPressed(HeroActionKey.Left))
+            if (IsActionButtonPressed(global::GlobalEnums.HeroActionButton.LEFT))
             {
                 voiceHorizontal -= 1f;
             }
 
-            if (IsKeyPressed(HeroActionKey.Right))
+            if (IsActionButtonPressed(global::GlobalEnums.HeroActionButton.RIGHT))
             {
                 voiceHorizontal += 1f;
             }
 
             var voiceVertical = 0f;
-            if (IsKeyPressed(HeroActionKey.Down))
+            if (IsActionButtonPressed(global::GlobalEnums.HeroActionButton.DOWN))
             {
                 voiceVertical -= 1f;
             }
 
-            if (IsKeyPressed(HeroActionKey.Up))
+            if (IsActionButtonPressed(global::GlobalEnums.HeroActionButton.UP))
             {
                 voiceVertical += 1f;
             }
@@ -245,17 +267,22 @@ namespace HkVoiceMod.Input
             return _updateWithAxesMethod;
         }
 
-        private void ReleaseOppositeHorizontalHold(HeroActionKey key)
+        private static PlayerAction? ResolvePlayerAction(global::InputHandler inputHandler, global::GlobalEnums.HeroActionButton actionButton)
         {
-            if (key == HeroActionKey.Left)
+            return inputHandler.ActionButtonToPlayerAction(actionButton);
+        }
+
+        private void ReleaseOppositeHorizontalHold(global::GlobalEnums.HeroActionButton actionButton)
+        {
+            if (actionButton == global::GlobalEnums.HeroActionButton.LEFT)
             {
-                _continuousHeldKeys.Remove(HeroActionKey.Right);
+                _continuousHeldButtons.Remove(global::GlobalEnums.HeroActionButton.RIGHT);
                 return;
             }
 
-            if (key == HeroActionKey.Right)
+            if (actionButton == global::GlobalEnums.HeroActionButton.RIGHT)
             {
-                _continuousHeldKeys.Remove(HeroActionKey.Left);
+                _continuousHeldButtons.Remove(global::GlobalEnums.HeroActionButton.LEFT);
             }
         }
     }

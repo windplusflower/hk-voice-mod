@@ -66,23 +66,28 @@ namespace HkVoiceMod.Menu
             };
         }
 
-        internal static VoiceMacroStep CreateActionStep(HeroActionKey heroActionKey, VoiceModSettings settings)
+        internal static VoiceMacroStep CreateActionStep(global::GlobalEnums.HeroActionButton actionButton, VoiceModSettings settings)
         {
-            switch (heroActionKey)
+            switch (actionButton)
             {
-                case HeroActionKey.Left:
-                case HeroActionKey.Right:
-                    return VoiceMacroStep.CreateAction(new[] { heroActionKey }, KeyPressMode.ContinuousHold, 0f, true);
-                case HeroActionKey.Up:
-                case HeroActionKey.Down:
-                case HeroActionKey.Jump:
-                    return VoiceMacroStep.CreateAction(new[] { heroActionKey }, KeyPressMode.TimedHold, settings.TimedHoldDurationSeconds, false);
-                case HeroActionKey.Attack:
-                case HeroActionKey.Dash:
-                case HeroActionKey.Cast:
-                    return VoiceMacroStep.CreateAction(new[] { heroActionKey }, KeyPressMode.Tap, settings.ShortPressDurationSeconds, false);
+                case global::GlobalEnums.HeroActionButton.LEFT:
+                case global::GlobalEnums.HeroActionButton.RIGHT:
+                    return VoiceMacroStep.CreateAction(new[] { actionButton }, KeyPressMode.ContinuousHold, 0f, true);
+                case global::GlobalEnums.HeroActionButton.UP:
+                case global::GlobalEnums.HeroActionButton.DOWN:
+                case global::GlobalEnums.HeroActionButton.JUMP:
+                case global::GlobalEnums.HeroActionButton.SUPER_DASH:
+                case global::GlobalEnums.HeroActionButton.DREAM_NAIL:
+                case global::GlobalEnums.HeroActionButton.QUICK_MAP:
+                    return VoiceMacroStep.CreateAction(new[] { actionButton }, KeyPressMode.TimedHold, settings.TimedHoldDurationSeconds, false);
+                case global::GlobalEnums.HeroActionButton.ATTACK:
+                case global::GlobalEnums.HeroActionButton.DASH:
+                case global::GlobalEnums.HeroActionButton.CAST:
+                case global::GlobalEnums.HeroActionButton.QUICK_CAST:
+                case global::GlobalEnums.HeroActionButton.INVENTORY:
+                    return VoiceMacroStep.CreateAction(new[] { actionButton }, KeyPressMode.Tap, settings.ShortPressDurationSeconds, false);
                 default:
-                    throw new ArgumentOutOfRangeException(nameof(heroActionKey), heroActionKey, "Unsupported macro action key.");
+                    throw new ArgumentOutOfRangeException(nameof(actionButton), actionButton, "Unsupported macro action button.");
             }
         }
 
@@ -127,7 +132,7 @@ namespace HkVoiceMod.Menu
                 parts.Add(FormatMacroStep(step, resolver));
             }
 
-            return string.Join(" ", parts.ToArray());
+            return string.Join(",", parts.ToArray());
         }
 
         internal static string GetMacroDisplayName(VoiceMacroConfig macro)
@@ -159,19 +164,22 @@ namespace HkVoiceMod.Menu
         {
             if (step.StepKind == VoiceMacroStepKind.Delay)
             {
-                return $"Delay {Math.Round(step.DelaySeconds * 1000f, MidpointRounding.AwayFromZero)}ms";
+                return $"(delay {Math.Round(step.DelaySeconds * 1000f, MidpointRounding.AwayFromZero)}ms)";
             }
 
-            var keyNames = new List<string>(step.Keys?.Count ?? 0);
-            if (step.Keys != null)
+            var actionButtons = step.GetNormalizedActionButtons();
+            if (actionButtons.Count == 0)
             {
-                foreach (var key in step.Keys)
-                {
-                    keyNames.Add(resolver.GetDisplayName(key));
-                }
+                return "(<无效动作>)";
             }
 
-            return string.Join("+", keyNames.ToArray());
+            var keyNames = new List<string>(actionButtons.Count);
+            foreach (var actionButton in actionButtons)
+            {
+                keyNames.Add(resolver.GetDisplayName(actionButton));
+            }
+
+            return $"({string.Join("+", keyNames.ToArray())})";
         }
     }
 }
