@@ -337,7 +337,7 @@ namespace HkVoiceMod
                     ? new List<VoiceMacroStep>()
                     : new List<VoiceMacroStep>
                     {
-                        VoiceMacroStep.CreateAction(profile.Keys, profile.Mode, profile.DurationSeconds, profile.ReleaseOppositeHorizontalHold)
+                        VoiceMacroStep.CreateAction(HeroActionButtonCatalog.MapLegacyKeys(profile.Keys), profile.Mode, profile.DurationSeconds, profile.ReleaseOppositeHorizontalHold)
                     },
                 IsPreset = true
             };
@@ -365,16 +365,17 @@ namespace HkVoiceMod
                 throw new InvalidOperationException($"宏 {config.DisplayName} 的第 {stepIndex + 1} 个步骤类型不受支持。");
             }
 
-            if (step.Keys == null || step.Keys.Count == 0)
+            var actionButtons = step.GetNormalizedActionButtons();
+            if (actionButtons.Count == 0)
             {
                 throw new InvalidOperationException($"宏 {config.DisplayName} 的第 {stepIndex + 1} 个动作步骤缺少按键。");
             }
 
-            foreach (var key in step.Keys)
+            foreach (var actionButton in actionButtons)
             {
-                if (!Enum.IsDefined(typeof(HeroActionKey), key))
+                if (!Enum.IsDefined(typeof(global::GlobalEnums.HeroActionButton), actionButton) || !ContainsSupportedActionButton(actionButton))
                 {
-                    throw new InvalidOperationException($"宏 {config.DisplayName} 的第 {stepIndex + 1} 个动作步骤包含无效按键：{key}");
+                    throw new InvalidOperationException($"宏 {config.DisplayName} 的第 {stepIndex + 1} 个动作步骤包含无效按键：{actionButton}");
                 }
             }
 
@@ -387,6 +388,20 @@ namespace HkVoiceMod
             {
                 throw new InvalidOperationException($"宏 {config.DisplayName} 的第 {stepIndex + 1} 个动作步骤持续时间无效。");
             }
+        }
+
+        private static bool ContainsSupportedActionButton(global::GlobalEnums.HeroActionButton actionButton)
+        {
+            var supportedButtons = HeroActionButtonCatalog.SupportedGameplayButtons;
+            for (var index = 0; index < supportedButtons.Count; index++)
+            {
+                if (supportedButtons[index] == actionButton)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static List<VoiceCommandKeywordConfig> CloneCommandKeywordConfigs(List<VoiceCommandKeywordConfig> configs)
