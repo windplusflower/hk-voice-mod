@@ -49,7 +49,11 @@ namespace HkVoiceMod.Recognition.Sherpa
             Action<string>? logError = null)
         {
             _settings = settings?.Clone() ?? new VoiceModSettings();
-            _settings.MigrateLegacyCommandConfigsIfNeeded();
+            if (_settings.RequiresResetToEventStreamDefaults())
+            {
+                _settings.ResetToEventStreamDefaults();
+            }
+
             _settings.EnsureMacroDefaults();
             _settings.NormalizeAndValidateMacroSettings();
             _triggerLookup = BuildTriggerLookup(_settings);

@@ -39,6 +39,12 @@ namespace HkVoiceMod
         public void OnLoadGlobal(VoiceModSettings settings)
         {
             Settings = settings?.Clone() ?? new VoiceModSettings();
+            if (Settings.RequiresResetToEventStreamDefaults())
+            {
+                LogWarn("检测到旧版本地宏配置，已重置为新的事件流默认配置。");
+                Settings.ResetToEventStreamDefaults();
+            }
+
             PrepareSettingsForRuntime(Settings, true);
             _runtimeController?.ApplySettings(Settings);
         }
@@ -126,16 +132,18 @@ namespace HkVoiceMod
                 }
 
                 LogWarn($"检测到无效的语音宏设置，已回退到默认配置：{ex.Message}");
-                settings.StopKeywordConfig = StopKeywordConfig.CreateDefault();
-                settings.MacroConfigs = new System.Collections.Generic.List<VoiceMacroConfig>();
-                settings.CommandKeywordConfigs = VoiceCommandCatalog.CreateDefaultKeywordConfigs();
+                settings.ResetToEventStreamDefaults();
                 PrepareSettingsForRuntimeCore(settings);
             }
         }
 
         private void PrepareSettingsForRuntimeCore(VoiceModSettings settings)
         {
-            settings.MigrateLegacyCommandConfigsIfNeeded();
+            if (settings.RequiresResetToEventStreamDefaults())
+            {
+                settings.ResetToEventStreamDefaults();
+            }
+
             settings.EnsureMacroDefaults();
             settings.NormalizeAndValidateMacroSettings();
 

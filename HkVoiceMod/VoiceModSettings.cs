@@ -9,6 +9,13 @@ namespace HkVoiceMod
     [Serializable]
     public sealed class VoiceModSettings
     {
+        private const int CurrentMacroStorageVersion = 2;
+
+        public VoiceModSettings()
+        {
+            ResetToEventStreamDefaults();
+        }
+
         public bool Enabled { get; set; } = true;
 
         public string SherpaModelPath { get; set; } = "assets/sherpa-kws-cn";
@@ -27,11 +34,13 @@ namespace HkVoiceMod
 
         public bool LogRecognizedText { get; set; } = true;
 
+        public int MacroStorageVersion { get; set; } = CurrentMacroStorageVersion;
+
         public StopKeywordConfig StopKeywordConfig { get; set; } = global::HkVoiceMod.Commands.StopKeywordConfig.CreateDefault();
 
         public List<VoiceMacroConfig> MacroConfigs { get; set; } = new List<VoiceMacroConfig>();
 
-        public List<VoiceCommandKeywordConfig> CommandKeywordConfigs { get; set; } = VoiceCommandCatalog.CreateDefaultKeywordConfigs();
+        public List<VoiceCommandKeywordConfig> CommandKeywordConfigs { get; set; } = new List<VoiceCommandKeywordConfig>();
 
         public VoiceModSettings Clone()
         {
@@ -46,6 +55,7 @@ namespace HkVoiceMod
                 CaptureBufferMilliseconds = CaptureBufferMilliseconds,
                 EnableVerboseLogging = EnableVerboseLogging,
                 LogRecognizedText = LogRecognizedText,
+                MacroStorageVersion = MacroStorageVersion,
                 StopKeywordConfig = StopKeywordConfig?.Clone() ?? global::HkVoiceMod.Commands.StopKeywordConfig.CreateDefault(),
                 MacroConfigs = CloneMacroConfigs(MacroConfigs),
                 CommandKeywordConfigs = CloneCommandKeywordConfigs(CommandKeywordConfigs)
@@ -56,56 +66,7 @@ namespace HkVoiceMod
         {
             StopKeywordConfig = StopKeywordConfig?.Clone() ?? global::HkVoiceMod.Commands.StopKeywordConfig.CreateDefault();
             MacroConfigs = CloneMacroConfigs(MacroConfigs);
-        }
-
-        public void EnsureCommandKeywordDefaults()
-        {
-            var existingByCommand = new Dictionary<VoiceCommand, VoiceCommandKeywordConfig>();
-            if (CommandKeywordConfigs != null)
-            {
-                foreach (var config in CommandKeywordConfigs)
-                {
-                    if (config == null || existingByCommand.ContainsKey(config.Command))
-                    {
-                        continue;
-                    }
-
-                    existingByCommand[config.Command] = config.Clone();
-                }
-            }
-
-            CommandKeywordConfigs = new List<VoiceCommandKeywordConfig>(VoiceCommandCatalog.All.Count);
-            foreach (var definition in VoiceCommandCatalog.All)
-            {
-                if (existingByCommand.TryGetValue(definition.Command, out var existing))
-                {
-                    if (string.IsNullOrWhiteSpace(existing.WakeWord))
-                    {
-                        existing.WakeWord = definition.DefaultWakeWord;
-                    }
-
-                    if (!IsThresholdInRange(existing.KeywordThreshold))
-                    {
-                        existing.KeywordThreshold = definition.DefaultThreshold;
-                    }
-
-                    CommandKeywordConfigs.Add(existing);
-                    continue;
-                }
-
-                CommandKeywordConfigs.Add(new VoiceCommandKeywordConfig
-                {
-                    Command = definition.Command,
-                    WakeWord = definition.DefaultWakeWord,
-                    KeywordThreshold = definition.DefaultThreshold
-                });
-            }
-        }
-
-        public IReadOnlyList<VoiceCommandKeywordConfig> GetOrderedCommandKeywordConfigs()
-        {
-            EnsureCommandKeywordDefaults();
-            return CommandKeywordConfigs;
+            CommandKeywordConfigs = CloneCommandKeywordConfigs(CommandKeywordConfigs);
         }
 
         public IReadOnlyList<VoiceMacroConfig> GetOrderedMacroConfigs()
@@ -114,40 +75,56 @@ namespace HkVoiceMod
             return MacroConfigs;
         }
 
-        public void MigrateLegacyCommandConfigsIfNeeded()
+        public IReadOnlyList<VoiceCommandKeywordConfig> GetOrderedCommandKeywordConfigs()
         {
             EnsureMacroDefaults();
-            if (MacroConfigs.Count > 0)
+            return CommandKeywordConfigs;
+        }
+
+        public bool RequiresResetToEventStreamDefaults()
+        {
+            if (MacroStorageVersion < CurrentMacroStorageVersion)
             {
-                return;
+                return true;
             }
 
-            EnsureCommandKeywordDefaults();
-            var migratedMacros = new List<VoiceMacroConfig>();
-            var stopConfig = global::HkVoiceMod.Commands.StopKeywordConfig.CreateDefault();
-
-            foreach (var legacyConfig in GetOrderedCommandKeywordConfigs())
+            if (MacroConfigs == null)
             {
-                if (legacyConfig.Command == VoiceCommand.Stop)
+                return false;
+            }
+
+            foreach (var macro in MacroConfigs)
+            {
+                if (macro == null)
                 {
-                    stopConfig = new global::HkVoiceMod.Commands.StopKeywordConfig
-                    {
-                        WakeWord = legacyConfig.WakeWord,
-                        KeywordThreshold = legacyConfig.KeywordThreshold
-                    };
-                    continue;
+                    return true;
                 }
 
-                migratedMacros.Add(CreatePresetMacroFromLegacyCommand(legacyConfig));
+                if ((macro.Steps?.Count ?? 0) > 0)
+                {
+                    return true;
+                }
             }
 
-            StopKeywordConfig = stopConfig;
-            MacroConfigs = migratedMacros;
+            return false;
+        }
+
+        public void ResetToEventStreamDefaults()
+        {
+            StopKeywordConfig = global::HkVoiceMod.Commands.StopKeywordConfig.CreateDefault();
+            MacroConfigs = CreateDefaultEventStreamMacros();
+            CommandKeywordConfigs = new List<VoiceCommandKeywordConfig>();
+            MacroStorageVersion = CurrentMacroStorageVersion;
         }
 
         public void NormalizeAndValidateMacroSettings()
         {
             EnsureMacroDefaults();
+
+            if (RequiresResetToEventStreamDefaults())
+            {
+                throw new InvalidOperationException("检测到旧版宏配置结构，必须先重置到新的事件流默认配置。");
+            }
 
             var normalizedWakeWords = new HashSet<string>(StringComparer.Ordinal);
             var normalizedStopWakeWord = NormalizeWakeWord(StopKeywordConfig.WakeWord);
@@ -216,23 +193,14 @@ namespace HkVoiceMod
                     throw new InvalidOperationException($"宏 {config.DisplayName} 的阈值必须在 0.01 到 1.00 之间。");
                 }
 
-                if (config.Steps == null || config.Steps.Count == 0)
-                {
-                    throw new InvalidOperationException($"宏 {config.DisplayName} 至少需要一个步骤。");
-                }
-
-                for (var stepIndex = 0; stepIndex < config.Steps.Count; stepIndex++)
-                {
-                    ValidateMacroStep(config, config.Steps[stepIndex], stepIndex);
-                }
-
+                ValidateMacroKeyEvents(config);
                 config.WakeWord = normalizedWakeWord;
             }
         }
 
         public void NormalizeAndValidateCommandKeywordConfigs()
         {
-            EnsureCommandKeywordDefaults();
+            EnsureMacroDefaults();
 
             var normalizedWakeWords = new HashSet<string>(StringComparer.Ordinal);
             foreach (var config in CommandKeywordConfigs)
@@ -272,12 +240,7 @@ namespace HkVoiceMod
             var builder = new StringBuilder(wakeWord.Length);
             foreach (var character in wakeWord.Trim())
             {
-                if (character == '@')
-                {
-                    continue;
-                }
-
-                if (char.IsWhiteSpace(character))
+                if (character == '@' || char.IsWhiteSpace(character))
                 {
                     continue;
                 }
@@ -316,77 +279,191 @@ namespace HkVoiceMod
             return !float.IsNaN(threshold) && !float.IsInfinity(threshold) && threshold >= 0.01f && threshold <= 1.0f;
         }
 
-        private VoiceMacroConfig CreatePresetMacroFromLegacyCommand(VoiceCommandKeywordConfig legacyConfig)
+        private List<VoiceMacroConfig> CreateDefaultEventStreamMacros()
         {
-            var definition = VoiceCommandCatalog.GetDefinition(legacyConfig.Command);
-            var displayName = legacyConfig.Command == VoiceCommand.Cast ? "法术" : definition.DisplayName;
-            var wakeWord = legacyConfig.WakeWord;
-            if (legacyConfig.Command == VoiceCommand.Cast && string.Equals(NormalizeWakeWord(wakeWord), "放波", StringComparison.Ordinal))
+            var macros = new List<VoiceMacroConfig>();
+            foreach (var definition in VoiceCommandCatalog.All)
             {
-                wakeWord = "法术";
+                if (definition.Command == VoiceCommand.Stop)
+                {
+                    continue;
+                }
+
+                var profile = VoiceCommandMap.GetProfile(definition.Command, this);
+                var keyEvents = CreateDefaultEventSequence(definition.Command, profile);
+                if (keyEvents.Count == 0)
+                {
+                    continue;
+                }
+
+                macros.Add(new VoiceMacroConfig
+                {
+                    Id = $"preset-{definition.Command.ToString().ToLowerInvariant()}",
+                    DisplayName = definition.DisplayName,
+                    WakeWord = definition.DefaultWakeWord,
+                    KeywordThreshold = definition.DefaultThreshold,
+                    KeyEvents = keyEvents,
+                    Steps = new List<VoiceMacroStep>(),
+                    IsPreset = true
+                });
             }
 
-            var profile = VoiceCommandMap.GetProfile(legacyConfig.Command, this);
-            return new VoiceMacroConfig
-            {
-                Id = $"legacy-{legacyConfig.Command.ToString().ToLowerInvariant()}",
-                DisplayName = displayName,
-                WakeWord = wakeWord,
-                KeywordThreshold = legacyConfig.KeywordThreshold,
-                Steps = profile.Mode == KeyPressMode.ReleaseContinuous
-                    ? new List<VoiceMacroStep>()
-                    : new List<VoiceMacroStep>
-                    {
-                        VoiceMacroStep.CreateAction(HeroActionButtonCatalog.MapLegacyKeys(profile.Keys), profile.Mode, profile.DurationSeconds, profile.ReleaseOppositeHorizontalHold)
-                    },
-                IsPreset = true
-            };
+            return macros;
         }
 
-        private static void ValidateMacroStep(VoiceMacroConfig config, VoiceMacroStep step, int stepIndex)
+        private List<VoiceMacroKeyEvent> CreateDefaultEventSequence(VoiceCommand command, KeyActionProfile profile)
         {
-            if (step == null)
-            {
-                throw new InvalidOperationException($"宏 {config.DisplayName} 的第 {stepIndex + 1} 个步骤为空。");
-            }
-
-            if (step.StepKind == VoiceMacroStepKind.Delay)
-            {
-                if (step.DelaySeconds <= 0f || float.IsNaN(step.DelaySeconds) || float.IsInfinity(step.DelaySeconds))
-                {
-                    throw new InvalidOperationException($"宏 {config.DisplayName} 的第 {stepIndex + 1} 个延迟步骤无效。");
-                }
-
-                return;
-            }
-
-            if (step.StepKind != VoiceMacroStepKind.Action)
-            {
-                throw new InvalidOperationException($"宏 {config.DisplayName} 的第 {stepIndex + 1} 个步骤类型不受支持。");
-            }
-
-            var actionButtons = step.GetNormalizedActionButtons();
+            var actionButtons = HeroActionButtonCatalog.MapLegacyKeys(profile.Keys);
+            var events = new List<VoiceMacroKeyEvent>(actionButtons.Count * 2);
             if (actionButtons.Count == 0)
             {
-                throw new InvalidOperationException($"宏 {config.DisplayName} 的第 {stepIndex + 1} 个动作步骤缺少按键。");
+                return events;
             }
 
-            foreach (var actionButton in actionButtons)
+            for (var index = 0; index < actionButtons.Count; index++)
             {
-                if (!Enum.IsDefined(typeof(global::GlobalEnums.HeroActionButton), actionButton) || !ContainsSupportedActionButton(actionButton))
+                events.Add(new VoiceMacroKeyEvent
                 {
-                    throw new InvalidOperationException($"宏 {config.DisplayName} 的第 {stepIndex + 1} 个动作步骤包含无效按键：{actionButton}");
+                    DelayBeforeMilliseconds = 0,
+                    ActionButton = actionButtons[index],
+                    EventKind = VoiceMacroKeyEventKind.Down,
+                    PairId = BuildDefaultPairId(command, index)
+                });
+            }
+
+            if (profile.Mode == KeyPressMode.ContinuousHold)
+            {
+                return events;
+            }
+
+            var holdMilliseconds = ResolveDefaultHoldMilliseconds(profile);
+            for (var index = 0; index < actionButtons.Count; index++)
+            {
+                events.Add(new VoiceMacroKeyEvent
+                {
+                    DelayBeforeMilliseconds = index == 0 ? holdMilliseconds : 0,
+                    ActionButton = actionButtons[index],
+                    EventKind = VoiceMacroKeyEventKind.Up,
+                    PairId = BuildDefaultPairId(command, index)
+                });
+            }
+
+            return events;
+        }
+
+        private int ResolveDefaultHoldMilliseconds(KeyActionProfile profile)
+        {
+            var durationSeconds = profile.Mode == KeyPressMode.ContinuousHold
+                ? TimedHoldDurationSeconds
+                : profile.DurationSeconds;
+
+            var milliseconds = (int)Math.Round(Math.Max(durationSeconds, 0.001f) * 1000f, MidpointRounding.AwayFromZero);
+            return Math.Max(1, milliseconds);
+        }
+
+        private static string BuildDefaultPairId(VoiceCommand command, int actionIndex)
+        {
+            return $"{command.ToString().ToLowerInvariant()}-{actionIndex}";
+        }
+
+        private static void ValidateMacroKeyEvents(VoiceMacroConfig config)
+        {
+            if (config.KeyEvents == null || config.KeyEvents.Count == 0)
+            {
+                throw new InvalidOperationException($"宏 {config.DisplayName} 至少需要一个事件。");
+            }
+
+            if ((config.Steps?.Count ?? 0) > 0)
+            {
+                throw new InvalidOperationException($"宏 {config.DisplayName} 仍包含旧版步骤数据，必须重置为事件流配置。");
+            }
+
+            if (config.KeyEvents[0] == null)
+            {
+                throw new InvalidOperationException($"宏 {config.DisplayName} 的第 1 个事件为空。");
+            }
+
+            if (config.KeyEvents[0].DelayBeforeMilliseconds != 0)
+            {
+                throw new InvalidOperationException($"宏 {config.DisplayName} 的第 1 个事件前置间隔必须为 0。");
+            }
+
+            var pairStates = new Dictionary<string, PairValidationState>(StringComparer.Ordinal);
+            var activeActionButtons = new HashSet<global::GlobalEnums.HeroActionButton>();
+            for (var index = 0; index < config.KeyEvents.Count; index++)
+            {
+                var keyEvent = config.KeyEvents[index];
+                if (keyEvent == null)
+                {
+                    throw new InvalidOperationException($"宏 {config.DisplayName} 的第 {index + 1} 个事件为空。");
                 }
+
+                if (keyEvent.DelayBeforeMilliseconds < 0)
+                {
+                    throw new InvalidOperationException($"宏 {config.DisplayName} 的第 {index + 1} 个事件前置间隔无效。");
+                }
+
+                if (string.IsNullOrWhiteSpace(keyEvent.PairId))
+                {
+                    throw new InvalidOperationException($"宏 {config.DisplayName} 的第 {index + 1} 个事件缺少 PairId。");
+                }
+
+                if (!Enum.IsDefined(typeof(global::GlobalEnums.HeroActionButton), keyEvent.ActionButton) || !ContainsSupportedActionButton(keyEvent.ActionButton))
+                {
+                    throw new InvalidOperationException($"宏 {config.DisplayName} 的第 {index + 1} 个事件包含无效按键：{keyEvent.ActionButton}");
+                }
+
+                if (!pairStates.TryGetValue(keyEvent.PairId, out var pairState))
+                {
+                    pairState = new PairValidationState();
+                }
+
+                if (keyEvent.EventKind == VoiceMacroKeyEventKind.Down)
+                {
+                    if (pairState.HasDown)
+                    {
+                        throw new InvalidOperationException($"宏 {config.DisplayName} 的 PairId {keyEvent.PairId} 存在重复 Down。");
+                    }
+
+                    if (activeActionButtons.Contains(keyEvent.ActionButton))
+                    {
+                        throw new InvalidOperationException($"宏 {config.DisplayName} 中按键 {keyEvent.ActionButton} 存在重叠按住，当前事件流不支持同一动作键并发持有。");
+                    }
+
+                    pairState.HasDown = true;
+                    pairState.ActionButton = keyEvent.ActionButton;
+                    activeActionButtons.Add(keyEvent.ActionButton);
+                }
+                else
+                {
+                    if (!pairState.HasDown)
+                    {
+                        throw new InvalidOperationException($"宏 {config.DisplayName} 的 PairId {keyEvent.PairId} 在 Down 之前出现了 Up。");
+                    }
+
+                    if (pairState.HasUp)
+                    {
+                        throw new InvalidOperationException($"宏 {config.DisplayName} 的 PairId {keyEvent.PairId} 存在重复 Up。");
+                    }
+
+                    if (pairState.ActionButton != keyEvent.ActionButton)
+                    {
+                        throw new InvalidOperationException($"宏 {config.DisplayName} 的 PairId {keyEvent.PairId} 按键不一致。");
+                    }
+
+                    pairState.HasUp = true;
+                    activeActionButtons.Remove(keyEvent.ActionButton);
+                }
+
+                pairStates[keyEvent.PairId] = pairState;
             }
 
-            if (step.PressMode == KeyPressMode.ReleaseContinuous)
+            foreach (var pairState in pairStates)
             {
-                throw new InvalidOperationException($"宏 {config.DisplayName} 的第 {stepIndex + 1} 个动作步骤不允许使用 ReleaseContinuous。");
-            }
-
-            if ((step.PressMode == KeyPressMode.TimedHold || step.PressMode == KeyPressMode.Tap) && (step.DurationSeconds <= 0f || float.IsNaN(step.DurationSeconds) || float.IsInfinity(step.DurationSeconds)))
-            {
-                throw new InvalidOperationException($"宏 {config.DisplayName} 的第 {stepIndex + 1} 个动作步骤持续时间无效。");
+                if (!pairState.Value.HasDown)
+                {
+                    throw new InvalidOperationException($"宏 {config.DisplayName} 的 PairId {pairState.Key} 缺少 Down 事件。");
+                }
             }
         }
 
@@ -408,7 +485,7 @@ namespace HkVoiceMod
         {
             if (configs == null)
             {
-                return VoiceCommandCatalog.CreateDefaultKeywordConfigs();
+                return new List<VoiceCommandKeywordConfig>();
             }
 
             var clones = new List<VoiceCommandKeywordConfig>(configs.Count);
@@ -440,6 +517,13 @@ namespace HkVoiceMod
             }
 
             return clones;
+        }
+
+        private struct PairValidationState
+        {
+            public bool HasDown;
+            public bool HasUp;
+            public global::GlobalEnums.HeroActionButton ActionButton;
         }
     }
 }
