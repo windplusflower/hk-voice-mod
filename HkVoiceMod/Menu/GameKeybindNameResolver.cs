@@ -1,82 +1,108 @@
 using System;
-using InControl;
 using HkVoiceMod.Commands;
+using InControl;
 using UnityEngine;
 
 namespace HkVoiceMod.Menu
 {
     internal sealed class GameKeybindNameResolver
     {
-        private static readonly HeroActionKey[] SupportedKeys =
+        public bool TryResolveFromCurrentBindings(KeyCode keyCode, out global::GlobalEnums.HeroActionButton actionButton, out string displayName)
         {
-            HeroActionKey.Left,
-            HeroActionKey.Right,
-            HeroActionKey.Up,
-            HeroActionKey.Down,
-            HeroActionKey.Attack,
-            HeroActionKey.Jump,
-            HeroActionKey.Dash,
-            HeroActionKey.Cast
-        };
-
-        public bool TryResolveFromCurrentBindings(KeyCode keyCode, out HeroActionKey heroActionKey, out string displayName)
-        {
-            heroActionKey = default(HeroActionKey);
+            actionButton = default(global::GlobalEnums.HeroActionButton);
             displayName = string.Empty;
 
-            var inputActions = global::InputHandler.Instance?.inputActions;
-            if (inputActions == null)
+            foreach (var supportedButton in HeroActionButtonCatalog.SupportedGameplayButtons)
             {
-                return false;
-            }
-
-            foreach (var supportedKey in SupportedKeys)
-            {
-                var action = GetPlayerAction(inputActions, supportedKey);
-                if (action == null || !ActionHasKeyBinding(action, keyCode))
+                if (!TryGetPlayerAction(supportedButton, out var action) || action == null || !ActionHasKeyBinding(action, keyCode))
                 {
                     continue;
                 }
 
-                heroActionKey = supportedKey;
-                displayName = GetDisplayName(supportedKey);
+                actionButton = supportedButton;
+                displayName = GetDisplayName(supportedButton);
                 return true;
             }
 
             return false;
         }
 
-        public string GetDisplayName(HeroActionKey heroActionKey)
+        public string GetDisplayName(global::GlobalEnums.HeroActionButton actionButton)
         {
-            var inputActions = global::InputHandler.Instance?.inputActions;
-            var action = inputActions != null ? GetPlayerAction(inputActions, heroActionKey) : null;
-            var actionName = action != null ? action.Name : string.Empty;
-            if (!string.IsNullOrWhiteSpace(actionName))
+            var inputHandler = global::InputHandler.Instance;
+            if (inputHandler != null && TryGetPlayerAction(actionButton, out var action) && action != null)
             {
-                return actionName;
+                var localizedName = inputHandler.ActionButtonLocalizedKey(action);
+                if (IsMeaningfulDisplayName(localizedName))
+                {
+                    return localizedName;
+                }
+
+                if (IsMeaningfulDisplayName(action.Name))
+                {
+                    return action.Name;
+                }
             }
 
-            switch (heroActionKey)
+            switch (actionButton)
             {
-                case HeroActionKey.Left:
+                case global::GlobalEnums.HeroActionButton.LEFT:
                     return "左移";
-                case HeroActionKey.Right:
+                case global::GlobalEnums.HeroActionButton.RIGHT:
                     return "右移";
-                case HeroActionKey.Up:
+                case global::GlobalEnums.HeroActionButton.UP:
                     return "上移";
-                case HeroActionKey.Down:
+                case global::GlobalEnums.HeroActionButton.DOWN:
                     return "下移";
-                case HeroActionKey.Attack:
+                case global::GlobalEnums.HeroActionButton.ATTACK:
                     return "攻击";
-                case HeroActionKey.Jump:
+                case global::GlobalEnums.HeroActionButton.JUMP:
                     return "跳跃";
-                case HeroActionKey.Dash:
+                case global::GlobalEnums.HeroActionButton.DASH:
                     return "冲刺";
-                case HeroActionKey.Cast:
+                case global::GlobalEnums.HeroActionButton.SUPER_DASH:
+                    return "超级冲刺";
+                case global::GlobalEnums.HeroActionButton.CAST:
                     return "法术";
+                case global::GlobalEnums.HeroActionButton.QUICK_CAST:
+                    return "快速施法";
+                case global::GlobalEnums.HeroActionButton.DREAM_NAIL:
+                    return "梦之钉";
+                case global::GlobalEnums.HeroActionButton.QUICK_MAP:
+                    return "快速地图";
+                case global::GlobalEnums.HeroActionButton.INVENTORY:
+                    return "物品栏";
                 default:
-                    return heroActionKey.ToString();
+                    return actionButton.ToString();
             }
+        }
+
+        private static bool IsMeaningfulDisplayName(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return false;
+            }
+
+            var trimmed = value!.Trim();
+            var normalized = trimmed.Replace(" ", string.Empty).Replace("_", string.Empty).Replace("-", string.Empty);
+            return !normalized.Equals("UNKNOWN", StringComparison.OrdinalIgnoreCase)
+                && !normalized.Equals("UNKNOWNKEY", StringComparison.OrdinalIgnoreCase)
+                && !normalized.Equals("UNBOUND", StringComparison.OrdinalIgnoreCase)
+                && !normalized.Equals("NONE", StringComparison.OrdinalIgnoreCase);
+        }
+
+        public bool TryGetPlayerAction(global::GlobalEnums.HeroActionButton actionButton, out PlayerAction? action)
+        {
+            var inputHandler = global::InputHandler.Instance;
+            if (inputHandler == null)
+            {
+                action = null;
+                return false;
+            }
+
+            action = inputHandler.ActionButtonToPlayerAction(actionButton);
+            return action != null;
         }
 
         private static bool ActionHasKeyBinding(PlayerAction action, KeyCode keyCode)
@@ -141,29 +167,5 @@ namespace HkVoiceMod.Menu
             }
         }
 
-        private static PlayerAction? GetPlayerAction(global::HeroActions inputActions, HeroActionKey heroActionKey)
-        {
-            switch (heroActionKey)
-            {
-                case HeroActionKey.Left:
-                    return inputActions.left;
-                case HeroActionKey.Right:
-                    return inputActions.right;
-                case HeroActionKey.Up:
-                    return inputActions.up;
-                case HeroActionKey.Down:
-                    return inputActions.down;
-                case HeroActionKey.Attack:
-                    return inputActions.attack;
-                case HeroActionKey.Jump:
-                    return inputActions.jump;
-                case HeroActionKey.Dash:
-                    return inputActions.dash;
-                case HeroActionKey.Cast:
-                    return inputActions.cast;
-                default:
-                    return null;
-            }
-        }
     }
 }
