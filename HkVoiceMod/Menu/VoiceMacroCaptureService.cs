@@ -18,7 +18,10 @@ namespace HkVoiceMod.Menu
         private bool _resumeCaptureAfterSuspend;
         private bool _isAwaitingSingleKeyInput;
         private int _resumeBlockedFrame = -1;
-        private Action<global::GlobalEnums.HeroActionButton>? _onActionButton;
+        private readonly Dictionary<KeyCode, ActiveCapturedKeyState> _activeCapturedKeysByKeyCode = new Dictionary<KeyCode, ActiveCapturedKeyState>();
+        private bool _hasRecordedAnyEvent;
+        private float _lastRecordedEventRealtime;
+        private Action<CapturedMacroKeyEvent>? _onKeyEvent;
         private Action? _onDeleteLast;
         private Action? _onCancel;
         private Action? _onConfirm;
@@ -60,15 +63,15 @@ namespace HkVoiceMod.Menu
 
             if (IsCapturing(macroId))
             {
-                return "录制中：按游戏当前绑定键追加步骤；若要删除末尾、确认或取消，请先点击“停止录制”。";
+                return "录制中：会记录按下、松开与事件间隔；若要删除末尾、确认或取消，请先点击“停止录制”。";
             }
 
             return HasCaptureSession(macroId)
-                ? "未录制：点击“开始录制”后才会追加步骤；当前可用 Backspace 删除末尾、Enter 确认、Esc 取消。"
-                : "未录制：点击“开始录制”后才会追加步骤。";
+                ? "未录制：点击“开始录制”后才会追加事件；当前可用 Backspace 删除末尾、Enter 确认、Esc 取消。"
+                : "未录制：点击“开始录制”后才会追加事件。";
         }
 
-        public void BeginCapture(string macroId, Action<global::GlobalEnums.HeroActionButton> onActionButton, Action onDeleteLast, Action onCancel, Action onConfirm)
+        public void BeginCapture(string macroId, Action<CapturedMacroKeyEvent> onKeyEvent, Action onDeleteLast, Action onCancel, Action onConfirm)
         {
             if (string.IsNullOrWhiteSpace(macroId))
             {
@@ -81,8 +84,11 @@ namespace HkVoiceMod.Menu
             _isCaptureSuspended = false;
             _resumeCaptureAfterSuspend = false;
             ClearSingleKeyCapture();
+            _activeCapturedKeysByKeyCode.Clear();
+            _hasRecordedAnyEvent = false;
+            _lastRecordedEventRealtime = 0f;
             _resumeBlockedFrame = Time.frameCount;
-            _onActionButton = onActionButton ?? throw new ArgumentNullException(nameof(onActionButton));
+            _onKeyEvent = onKeyEvent ?? throw new ArgumentNullException(nameof(onKeyEvent));
             _onDeleteLast = onDeleteLast ?? throw new ArgumentNullException(nameof(onDeleteLast));
             _onCancel = onCancel ?? throw new ArgumentNullException(nameof(onCancel));
             _onConfirm = onConfirm ?? throw new ArgumentNullException(nameof(onConfirm));
@@ -99,6 +105,11 @@ namespace HkVoiceMod.Menu
             _isCaptureSuspended = false;
             _resumeCaptureAfterSuspend = false;
             ClearSingleKeyCapture();
+            _activeCapturedKeysByKeyCode.Clear();
+            if (_hasRecordedAnyEvent)
+            {
+                _lastRecordedEventRealtime = Time.realtimeSinceStartup;
+            }
             _resumeBlockedFrame = Time.frameCount;
         }
 
@@ -109,10 +120,12 @@ namespace HkVoiceMod.Menu
                 return;
             }
 
+            FlushActiveKeyUps();
             _isCaptureActive = false;
             _isCaptureSuspended = false;
             _resumeCaptureAfterSuspend = false;
             ClearSingleKeyCapture();
+            _activeCapturedKeysByKeyCode.Clear();
             _resumeBlockedFrame = -1;
         }
 
@@ -146,9 +159,11 @@ namespace HkVoiceMod.Menu
                 return;
             }
 
+            FlushActiveKeyUps();
             _resumeCaptureAfterSuspend = _isCaptureActive;
             _isCaptureActive = false;
             _isCaptureSuspended = true;
+            _activeCapturedKeysByKeyCode.Clear();
         }
 
         public void ResumeCapture()
@@ -161,18 +176,27 @@ namespace HkVoiceMod.Menu
             _isCaptureSuspended = false;
             _isCaptureActive = _resumeCaptureAfterSuspend;
             _resumeCaptureAfterSuspend = false;
+            _activeCapturedKeysByKeyCode.Clear();
+            if (_hasRecordedAnyEvent)
+            {
+                _lastRecordedEventRealtime = Time.realtimeSinceStartup;
+            }
             _resumeBlockedFrame = Time.frameCount;
         }
 
         public void StopCapture()
         {
+            FlushActiveKeyUps();
             _capturingMacroId = null;
             _isCaptureActive = false;
             _isCaptureSuspended = false;
             _resumeCaptureAfterSuspend = false;
             ClearSingleKeyCapture();
+            _activeCapturedKeysByKeyCode.Clear();
+            _hasRecordedAnyEvent = false;
+            _lastRecordedEventRealtime = 0f;
             _resumeBlockedFrame = -1;
-            _onActionButton = null;
+            _onKeyEvent = null;
             _onDeleteLast = null;
             _onCancel = null;
             _onConfirm = null;
@@ -193,7 +217,7 @@ namespace HkVoiceMod.Menu
 
         private void Poll()
         {
-            if (_capturingMacroId == null || _isCaptureSuspended || !global::UnityEngine.Input.anyKeyDown)
+            if (_capturingMacroId == null || _isCaptureSuspended)
             {
                 return;
             }
@@ -205,13 +229,15 @@ namespace HkVoiceMod.Menu
 
             foreach (var keyCode in AllKeyCodes)
             {
-                if (!global::UnityEngine.Input.GetKeyDown(keyCode))
+                if (global::UnityEngine.Input.GetKeyDown(keyCode))
                 {
-                    continue;
+                    HandleKeyDown(keyCode);
                 }
 
-                HandleKeyDown(keyCode);
-                break;
+                if (_isCaptureActive && global::UnityEngine.Input.GetKeyUp(keyCode))
+                {
+                    HandleKeyUp(keyCode);
+                }
             }
         }
 
@@ -253,10 +279,47 @@ namespace HkVoiceMod.Menu
                 return;
             }
 
+            if (_activeCapturedKeysByKeyCode.ContainsKey(keyCode))
+            {
+                return;
+            }
+
             if (_resolver.TryResolveFromCurrentBindings(keyCode, out var actionButton, out _))
             {
-                _onActionButton?.Invoke(actionButton);
+                if (ContainsActiveActionButton(actionButton))
+                {
+                    return;
+                }
+
+                var pairId = Guid.NewGuid().ToString("N");
+                _activeCapturedKeysByKeyCode[keyCode] = new ActiveCapturedKeyState(actionButton, pairId);
+                RecordKeyEvent(actionButton, VoiceMacroKeyEventKind.Down, pairId);
             }
+        }
+
+        private void HandleKeyUp(KeyCode keyCode)
+        {
+            if (!_activeCapturedKeysByKeyCode.TryGetValue(keyCode, out var activeKeyState))
+            {
+                return;
+            }
+
+            _activeCapturedKeysByKeyCode.Remove(keyCode);
+            RecordKeyEvent(activeKeyState.ActionButton, VoiceMacroKeyEventKind.Up, activeKeyState.PairId);
+        }
+
+        private void RecordKeyEvent(global::GlobalEnums.HeroActionButton actionButton, VoiceMacroKeyEventKind eventKind, string pairId)
+        {
+            var now = Time.realtimeSinceStartup;
+            var delayBeforeMilliseconds = 0;
+            if (_hasRecordedAnyEvent)
+            {
+                delayBeforeMilliseconds = Math.Max(0, (int)Math.Round((now - _lastRecordedEventRealtime) * 1000f, MidpointRounding.AwayFromZero));
+            }
+
+            _lastRecordedEventRealtime = now;
+            _hasRecordedAnyEvent = true;
+            _onKeyEvent?.Invoke(new CapturedMacroKeyEvent(actionButton, eventKind, delayBeforeMilliseconds, pairId));
         }
 
         private void ClearSingleKeyCapture()
@@ -264,6 +327,46 @@ namespace HkVoiceMod.Menu
             _isAwaitingSingleKeyInput = false;
             _onSingleKeyActionButton = null;
             _onSingleKeyCancel = null;
+        }
+
+        private bool ContainsActiveActionButton(global::GlobalEnums.HeroActionButton actionButton)
+        {
+            foreach (var activeKeyState in _activeCapturedKeysByKeyCode.Values)
+            {
+                if (activeKeyState.ActionButton == actionButton)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private void FlushActiveKeyUps()
+        {
+            if (!_isCaptureActive || _activeCapturedKeysByKeyCode.Count == 0)
+            {
+                return;
+            }
+
+            var activeKeyStates = new List<ActiveCapturedKeyState>(_activeCapturedKeysByKeyCode.Values);
+            for (var index = 0; index < activeKeyStates.Count; index++)
+            {
+                RecordKeyEvent(activeKeyStates[index].ActionButton, VoiceMacroKeyEventKind.Up, activeKeyStates[index].PairId);
+            }
+        }
+
+        private readonly struct ActiveCapturedKeyState
+        {
+            public ActiveCapturedKeyState(global::GlobalEnums.HeroActionButton actionButton, string pairId)
+            {
+                ActionButton = actionButton;
+                PairId = pairId ?? string.Empty;
+            }
+
+            public global::GlobalEnums.HeroActionButton ActionButton { get; }
+
+            public string PairId { get; }
         }
 
         private sealed class VoiceMacroCaptureBehaviour : MonoBehaviour

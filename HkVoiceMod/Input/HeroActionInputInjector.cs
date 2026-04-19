@@ -10,6 +10,7 @@ namespace HkVoiceMod.Input
     {
         private readonly Dictionary<global::GlobalEnums.HeroActionButton, float> _scheduledReleaseTimes = new Dictionary<global::GlobalEnums.HeroActionButton, float>();
         private readonly HashSet<global::GlobalEnums.HeroActionButton> _continuousHeldButtons = new HashSet<global::GlobalEnums.HeroActionButton>();
+        private readonly HashSet<global::GlobalEnums.HeroActionButton> _macroHeldButtons = new HashSet<global::GlobalEnums.HeroActionButton>();
 
         private VoiceModSettings _settings;
         private MethodInfo? _updateWithAxesMethod;
@@ -98,10 +99,26 @@ namespace HkVoiceMod.Input
             _continuousHeldButtons.Remove(global::GlobalEnums.HeroActionButton.RIGHT);
         }
 
+        public void PressMacroActionButton(global::GlobalEnums.HeroActionButton actionButton)
+        {
+            _macroHeldButtons.Add(actionButton);
+        }
+
+        public void ReleaseMacroActionButton(global::GlobalEnums.HeroActionButton actionButton)
+        {
+            _macroHeldButtons.Remove(actionButton);
+        }
+
+        public void ReleaseAllMacroActionButtons()
+        {
+            _macroHeldButtons.Clear();
+        }
+
         public void ResetAllInputs(float realtimeSinceStartup)
         {
             _continuousHeldButtons.Clear();
             _scheduledReleaseTimes.Clear();
+            _macroHeldButtons.Clear();
             ApplyCurrentInputState(0f, realtimeSinceStartup);
         }
 
@@ -175,7 +192,9 @@ namespace HkVoiceMod.Input
 
         private bool IsActionButtonPressed(global::GlobalEnums.HeroActionButton actionButton)
         {
-            return _continuousHeldButtons.Contains(actionButton) || _scheduledReleaseTimes.ContainsKey(actionButton);
+            return _macroHeldButtons.Contains(actionButton)
+                || _continuousHeldButtons.Contains(actionButton)
+                || _scheduledReleaseTimes.ContainsKey(actionButton);
         }
 
         private static void CommitAction(PlayerAction action, bool state, ulong tick, float unscaledDeltaTime)

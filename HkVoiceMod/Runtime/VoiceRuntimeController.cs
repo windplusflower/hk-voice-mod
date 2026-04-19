@@ -60,6 +60,7 @@ namespace HkVoiceMod.Runtime
                 if (triggerEvent.TriggerKind == VoiceTriggerKind.Stop)
                 {
                     _macroRunner.CancelPendingSteps();
+                    _inputInjector.ReleaseAllMacroActionButtons();
                     _inputInjector.ReleaseContinuousInputs();
                     continue;
                 }
