@@ -16,11 +16,14 @@ namespace HkVoiceMod.Menu
         private bool _isCaptureActive;
         private bool _isCaptureSuspended;
         private bool _resumeCaptureAfterSuspend;
+        private bool _isAwaitingSingleKeyInput;
         private int _resumeBlockedFrame = -1;
         private Action<global::GlobalEnums.HeroActionButton>? _onActionButton;
         private Action? _onDeleteLast;
         private Action? _onCancel;
         private Action? _onConfirm;
+        private Action<global::GlobalEnums.HeroActionButton>? _onSingleKeyActionButton;
+        private Action? _onSingleKeyCancel;
 
         public static VoiceMacroCaptureService Instance => _instance ?? (_instance = new VoiceMacroCaptureService());
 
@@ -39,6 +42,11 @@ namespace HkVoiceMod.Menu
         public bool IsCaptureSuspended(string macroId)
         {
             return string.Equals(_capturingMacroId, macroId, StringComparison.Ordinal) && _isCaptureSuspended;
+        }
+
+        public bool IsAwaitingSingleKeyInput(string macroId)
+        {
+            return string.Equals(_capturingMacroId, macroId, StringComparison.Ordinal) && _isAwaitingSingleKeyInput;
         }
 
         public string GetStatusText(string macroId)
@@ -72,6 +80,7 @@ namespace HkVoiceMod.Menu
             _isCaptureActive = false;
             _isCaptureSuspended = false;
             _resumeCaptureAfterSuspend = false;
+            ClearSingleKeyCapture();
             _resumeBlockedFrame = Time.frameCount;
             _onActionButton = onActionButton ?? throw new ArgumentNullException(nameof(onActionButton));
             _onDeleteLast = onDeleteLast ?? throw new ArgumentNullException(nameof(onDeleteLast));
@@ -89,6 +98,7 @@ namespace HkVoiceMod.Menu
             _isCaptureActive = true;
             _isCaptureSuspended = false;
             _resumeCaptureAfterSuspend = false;
+            ClearSingleKeyCapture();
             _resumeBlockedFrame = Time.frameCount;
         }
 
@@ -102,7 +112,31 @@ namespace HkVoiceMod.Menu
             _isCaptureActive = false;
             _isCaptureSuspended = false;
             _resumeCaptureAfterSuspend = false;
+            ClearSingleKeyCapture();
             _resumeBlockedFrame = -1;
+        }
+
+        public void BeginSingleKeyCapture(string macroId, Action<global::GlobalEnums.HeroActionButton> onActionButton, Action onCancel)
+        {
+            if (!HasCaptureSession(macroId) || _isCaptureActive || _isCaptureSuspended)
+            {
+                return;
+            }
+
+            _isAwaitingSingleKeyInput = true;
+            _onSingleKeyActionButton = onActionButton ?? throw new ArgumentNullException(nameof(onActionButton));
+            _onSingleKeyCancel = onCancel ?? throw new ArgumentNullException(nameof(onCancel));
+            _resumeBlockedFrame = Time.frameCount;
+        }
+
+        public void CancelSingleKeyCapture(string macroId)
+        {
+            if (!IsAwaitingSingleKeyInput(macroId))
+            {
+                return;
+            }
+
+            ClearSingleKeyCapture();
         }
 
         public void SuspendCapture()
@@ -136,6 +170,7 @@ namespace HkVoiceMod.Menu
             _isCaptureActive = false;
             _isCaptureSuspended = false;
             _resumeCaptureAfterSuspend = false;
+            ClearSingleKeyCapture();
             _resumeBlockedFrame = -1;
             _onActionButton = null;
             _onDeleteLast = null;
@@ -182,6 +217,24 @@ namespace HkVoiceMod.Menu
 
         private void HandleKeyDown(KeyCode keyCode)
         {
+            if (_isAwaitingSingleKeyInput)
+            {
+                if (keyCode == KeyCode.Escape)
+                {
+                    var onCancel = _onSingleKeyCancel;
+                    ClearSingleKeyCapture();
+                    onCancel?.Invoke();
+                }
+                else if (_resolver.TryResolveFromCurrentBindings(keyCode, out var resolvedActionButton, out _))
+                {
+                    var onSingleKeyActionButton = _onSingleKeyActionButton;
+                    ClearSingleKeyCapture();
+                    onSingleKeyActionButton?.Invoke(resolvedActionButton);
+                }
+
+                return;
+            }
+
             if (!_isCaptureActive)
             {
                 if (keyCode == KeyCode.Backspace)
@@ -204,6 +257,13 @@ namespace HkVoiceMod.Menu
             {
                 _onActionButton?.Invoke(actionButton);
             }
+        }
+
+        private void ClearSingleKeyCapture()
+        {
+            _isAwaitingSingleKeyInput = false;
+            _onSingleKeyActionButton = null;
+            _onSingleKeyCancel = null;
         }
 
         private sealed class VoiceMacroCaptureBehaviour : MonoBehaviour

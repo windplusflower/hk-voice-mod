@@ -50,6 +50,7 @@ namespace HkVoiceMod.UI
         private static VoiceSettingsWindowController? _instance;
 
         private readonly List<MacroRowWidgets> _macroRows = new List<MacroRowWidgets>();
+        private readonly List<RecordingStepRowWidgets> _recordingStepRows = new List<RecordingStepRowWidgets>();
         private Font? _font;
         private HkVoiceMod? _mod;
         private VoiceSettingsDraft? _draft;
@@ -59,14 +60,16 @@ namespace HkVoiceMod.UI
         private GameObject? _modalHost;
         private GameObject? _recordingModal;
         private GameObject? _delayModal;
+        private RectTransform? _recordingStepListContent;
         private Text? _statusText;
         private InputField? _stopWakeWordInput;
         private InputField? _stopThresholdInput;
         private InputField? _delayInputField;
         private Text? _recordingTitleText;
         private Text? _recordingHintText;
-        private Text? _recordingPreviewText;
+        private Text? _recordingEmptyText;
         private Text? _recordingStatusText;
+        private Text? _delayTitleText;
         private Text? _delayHintText;
         private Button? _recordingStartButton;
         private Button? _recordingStopButton;
@@ -75,6 +78,8 @@ namespace HkVoiceMod.UI
         private VoiceMacroConfig? _delayMacro;
         private List<VoiceMacroStep>? _recordingStartSnapshot;
         private int _delayModalBlockedFrame = -1;
+        private int _editingActionStepIndex = -1;
+        private int _editingDelayStepIndex = -1;
         private string _stopThresholdText = string.Empty;
         private bool _isClosingWindow;
 
@@ -104,6 +109,8 @@ namespace HkVoiceMod.UI
             _delayMacro = null;
             _recordingStartSnapshot = null;
             _delayModalBlockedFrame = -1;
+            _editingActionStepIndex = -1;
+            _editingDelayStepIndex = -1;
             _isClosingWindow = false;
 
             EnsureBuilt();
@@ -374,8 +381,9 @@ namespace HkVoiceMod.UI
             CreateText(previewPanel.transform, "RecordingPreviewLabel", "当前完整步骤序列", 24, TextColor, FontStyle.Bold, TextAnchor.MiddleLeft, TextAnchor.MiddleLeft, 30f);
             var previewScroll = CreateScrollView(previewPanel.transform, "RecordingPreviewScroll", out var previewContent, 0f);
             AddLayoutElement(previewScroll, -1f, -1f, 1f);
-            _recordingPreviewText = CreateText(previewContent, "RecordingPreviewText", string.Empty, 24, TextColor, FontStyle.Normal, TextAnchor.UpperLeft, TextAnchor.UpperLeft, -1f);
-            ConfigureWrappedAutoHeightText(_recordingPreviewText);
+            _recordingStepListContent = previewContent;
+            _recordingEmptyText = CreateText(previewContent, "RecordingEmptyText", "暂无步骤；点击“开始录制”后会逐行显示。", 22, MutedTextColor, FontStyle.Normal, TextAnchor.UpperLeft, TextAnchor.UpperLeft, -1f);
+            ConfigureWrappedAutoHeightText(_recordingEmptyText, 36f);
 
             _recordingStatusText = CreateText(modal.transform, "RecordingStatus", string.Empty, 24, MutedTextColor, FontStyle.Normal, TextAnchor.UpperLeft, TextAnchor.MiddleLeft, -1f);
             ConfigureWrappedAutoHeightText(_recordingStatusText, 60f);
@@ -412,7 +420,7 @@ namespace HkVoiceMod.UI
             modalLayout.childForceExpandWidth = true;
             modalLayout.childForceExpandHeight = false;
 
-            CreateText(modal.transform, "DelayTitle", "添加延迟", 32, TextColor, FontStyle.Bold, TextAnchor.MiddleLeft, TextAnchor.MiddleLeft, 40f);
+            _delayTitleText = CreateText(modal.transform, "DelayTitle", "添加延迟", 32, TextColor, FontStyle.Bold, TextAnchor.MiddleLeft, TextAnchor.MiddleLeft, 40f);
             var delayHintText = CreateText(modal.transform, "DelayHint", "输入毫秒数，确认后会插入到当前录制里。", 22, MutedTextColor, FontStyle.Normal, TextAnchor.UpperLeft, TextAnchor.MiddleLeft, -1f);
             ConfigureWrappedAutoHeightText(delayHintText, 46f);
 
@@ -450,6 +458,240 @@ namespace HkVoiceMod.UI
 
             modal.SetActive(false);
             return modal;
+        }
+
+        private void RebuildRecordingStepRows()
+        {
+            if (_recordingStepListContent == null)
+            {
+                return;
+            }
+
+            for (var index = 0; index < _recordingStepRows.Count; index++)
+            {
+                if (_recordingStepRows[index].Root != null)
+                {
+                    Destroy(_recordingStepRows[index].Root);
+                }
+            }
+
+            _recordingStepRows.Clear();
+
+            if (_recordingMacro?.Steps == null)
+            {
+                return;
+            }
+
+            for (var index = 0; index < _recordingMacro.Steps.Count; index++)
+            {
+                var row = BuildRecordingStepRow(_recordingStepListContent, _recordingMacro.Steps[index], index);
+                _recordingStepRows.Add(row);
+            }
+        }
+
+        private RecordingStepRowWidgets BuildRecordingStepRow(RectTransform parent, VoiceMacroStep step, int stepIndex)
+        {
+            var rowRoot = CreatePanel(parent, $"RecordingStep-{stepIndex}", RowColor);
+            AddLayoutElement(rowRoot, -1f, FieldHeight, 0f);
+
+            var rowLayout = CreateHorizontalLayout(rowRoot.transform, 12f, new RectOffset(12, 12, 8, 8));
+            rowLayout.childControlWidth = true;
+
+            var indexText = CreateText(rowRoot.transform, $"RecordingStepIndex-{stepIndex}", $"{stepIndex + 1}.", 20, TextColor, FontStyle.Bold, TextAnchor.MiddleLeft, TextAnchor.MiddleLeft, FieldHeight, false, 56f);
+            var kindText = CreateText(rowRoot.transform, $"RecordingStepKind-{stepIndex}", step.StepKind == VoiceMacroStepKind.Delay ? "延迟" : "动作", 20, MutedTextColor, FontStyle.Bold, TextAnchor.MiddleLeft, TextAnchor.MiddleLeft, FieldHeight, false, 80f);
+            CreateButton(rowRoot.transform, $"RecordingStepValue-{stepIndex}", string.Empty, -1f, SecondaryButtonColor, () => HandleRecordingStepClick(stepIndex), out var valueButton, out var valueText);
+
+            var buttonLayout = valueButton.GetComponent<LayoutElement>();
+            if (buttonLayout != null)
+            {
+                buttonLayout.flexibleWidth = 1f;
+                buttonLayout.minWidth = 420f;
+            }
+
+            valueText.alignment = TextAnchor.MiddleLeft;
+
+            return new RecordingStepRowWidgets
+            {
+                Root = rowRoot,
+                IndexText = indexText,
+                KindText = kindText,
+                ValueButton = valueButton,
+                ValueText = valueText
+            };
+        }
+
+        private void RefreshRecordingStepRows()
+        {
+            if (_recordingStepListContent == null || _recordingEmptyText == null)
+            {
+                return;
+            }
+
+            var steps = _recordingMacro?.Steps;
+            var stepCount = steps?.Count ?? 0;
+            if (_recordingStepRows.Count != stepCount)
+            {
+                RebuildRecordingStepRows();
+            }
+
+            _recordingEmptyText.gameObject.SetActive(stepCount == 0);
+            if (steps == null)
+            {
+                return;
+            }
+
+            var canEdit = _recordingMacro != null
+                && !VoiceMacroCaptureService.Instance.IsCapturing(_recordingMacro.Id)
+                && !VoiceMacroCaptureService.Instance.IsCaptureSuspended(_recordingMacro.Id)
+                && _editingActionStepIndex < 0;
+
+            for (var index = 0; index < _recordingStepRows.Count; index++)
+            {
+                var step = steps[index];
+                var row = _recordingStepRows[index];
+                row.IndexText.text = $"{index + 1}.";
+                row.KindText.text = step.StepKind == VoiceMacroStepKind.Delay ? "延迟" : "动作";
+                row.ValueText.text = _editingActionStepIndex == index && step.StepKind == VoiceMacroStepKind.Action
+                    ? "按下新的游戏按键..."
+                    : BuildRecordingStepValueText(step, VoiceMacroCaptureService.Instance.Resolver);
+                row.ValueButton.interactable = canEdit;
+            }
+        }
+
+        private void HandleRecordingStepClick(int stepIndex)
+        {
+            if (_recordingMacro == null || stepIndex < 0 || stepIndex >= _recordingMacro.Steps.Count)
+            {
+                return;
+            }
+
+            if (VoiceMacroCaptureService.Instance.IsCapturing(_recordingMacro.Id)
+                || VoiceMacroCaptureService.Instance.IsCaptureSuspended(_recordingMacro.Id)
+                || _editingActionStepIndex >= 0)
+            {
+                return;
+            }
+
+            var step = _recordingMacro.Steps[stepIndex];
+            if (step.StepKind == VoiceMacroStepKind.Delay)
+            {
+                OpenDelayModalForStep(stepIndex);
+                return;
+            }
+
+            BeginActionStepEdit(stepIndex);
+        }
+
+        private void BeginActionStepEdit(int stepIndex)
+        {
+            if (_recordingMacro == null || _draft == null || stepIndex < 0 || stepIndex >= _recordingMacro.Steps.Count)
+            {
+                return;
+            }
+
+            CancelPendingActionStepEdit();
+            _editingActionStepIndex = stepIndex;
+            VoiceMacroCaptureService.Instance.BeginSingleKeyCapture(
+                _recordingMacro.Id,
+                actionButton => ApplyActionStepEdit(stepIndex, actionButton),
+                CancelActionStepEdit);
+            RefreshDynamicContent();
+        }
+
+        private void ApplyActionStepEdit(int stepIndex, global::GlobalEnums.HeroActionButton actionButton)
+        {
+            if (_recordingMacro == null || _draft == null || stepIndex < 0 || stepIndex >= _recordingMacro.Steps.Count)
+            {
+                _editingActionStepIndex = -1;
+                RefreshDynamicContent();
+                return;
+            }
+
+            _recordingMacro.Steps[stepIndex] = VoiceSettingsMenuBuilder.CreateActionStep(actionButton, _draft.CreateSettingsSnapshot());
+            _editingActionStepIndex = -1;
+            RefreshDynamicContent();
+        }
+
+        private void CancelActionStepEdit()
+        {
+            _editingActionStepIndex = -1;
+            RefreshDynamicContent();
+        }
+
+        private void CancelPendingActionStepEdit()
+        {
+            if (_recordingMacro == null || _editingActionStepIndex < 0)
+            {
+                _editingActionStepIndex = -1;
+                return;
+            }
+
+            VoiceMacroCaptureService.Instance.CancelSingleKeyCapture(_recordingMacro.Id);
+            _editingActionStepIndex = -1;
+        }
+
+        private void OpenDelayModalForStep(int stepIndex)
+        {
+            if (_draft == null || _recordingMacro == null || _delayModal == null || _recordingModal == null || stepIndex < 0 || stepIndex >= _recordingMacro.Steps.Count)
+            {
+                return;
+            }
+
+            var step = _recordingMacro.Steps[stepIndex];
+            if (step.StepKind != VoiceMacroStepKind.Delay)
+            {
+                return;
+            }
+
+            CancelPendingActionStepEdit();
+            _editingDelayStepIndex = stepIndex;
+            _delayMacro = _recordingMacro;
+            VoiceMacroCaptureService.Instance.SuspendCapture();
+
+            var milliseconds = (int)Math.Round(step.DelaySeconds * 1000f, MidpointRounding.AwayFromZero);
+            _draft.SetPendingDelayMilliseconds(_delayMacro.Id, milliseconds);
+            SetInputFieldText(_delayInputField, milliseconds > 0 ? milliseconds.ToString(CultureInfo.InvariantCulture) : string.Empty);
+            _delayModalBlockedFrame = Time.frameCount;
+
+            if (_delayTitleText != null)
+            {
+                _delayTitleText.text = "编辑延迟";
+            }
+
+            if (_recordingModal != null)
+            {
+                _recordingModal.SetActive(false);
+            }
+
+            if (_delayModal != null)
+            {
+                _delayModal.SetActive(true);
+            }
+
+            RefreshDynamicContent();
+            FocusInputField(_delayInputField);
+        }
+
+        private static string BuildRecordingStepValueText(VoiceMacroStep step, GameKeybindNameResolver resolver)
+        {
+            if (step.StepKind == VoiceMacroStepKind.Delay)
+            {
+                return $"{Math.Round(step.DelaySeconds * 1000f, MidpointRounding.AwayFromZero)} 毫秒";
+            }
+
+            var actionButtons = step.GetNormalizedActionButtons();
+            if (actionButtons.Count == 0)
+            {
+                return "<无效动作>";
+            }
+
+            var parts = new List<string>(actionButtons.Count);
+            foreach (var actionButton in actionButtons)
+            {
+                parts.Add(resolver.GetDisplayName(actionButton));
+            }
+
+            return string.Join(" + ", parts.ToArray());
         }
 
         private void RebuildFromDraft()
@@ -640,6 +882,8 @@ namespace HkVoiceMod.UI
             VoiceMacroCaptureService.Instance.StopCapture();
             _recordingMacro = macro;
             _recordingStartSnapshot = _draft.CloneMacroSteps(macro.Id);
+            _editingActionStepIndex = -1;
+            _editingDelayStepIndex = -1;
             _recordingTitleText.text = $"录制宏：{VoiceSettingsMenuBuilder.GetMacroDisplayName(macro)}";
 
             _modalHost.SetActive(true);
@@ -672,6 +916,8 @@ namespace HkVoiceMod.UI
                 return;
             }
 
+            CancelPendingActionStepEdit();
+            _editingDelayStepIndex = -1;
             VoiceMacroCaptureService.Instance.StartCapture(_recordingMacro.Id);
             RefreshDynamicContent();
         }
@@ -683,6 +929,7 @@ namespace HkVoiceMod.UI
                 return;
             }
 
+            CancelPendingActionStepEdit();
             VoiceMacroCaptureService.Instance.StopActiveCapture(_recordingMacro.Id);
             RefreshDynamicContent();
         }
@@ -694,6 +941,8 @@ namespace HkVoiceMod.UI
                 return;
             }
 
+            CancelPendingActionStepEdit();
+            _editingDelayStepIndex = -1;
             VoiceMacroCaptureService.Instance.StopActiveCapture(_recordingMacro.Id);
             _recordingMacro.Steps.Clear();
             RefreshDynamicContent();
@@ -723,6 +972,8 @@ namespace HkVoiceMod.UI
 
             _recordingMacro = null;
             _recordingStartSnapshot = null;
+            _editingActionStepIndex = -1;
+            _editingDelayStepIndex = -1;
 
             if (_delayModal != null)
             {
@@ -745,11 +996,17 @@ namespace HkVoiceMod.UI
                 return;
             }
 
+            CancelPendingActionStepEdit();
+            _editingDelayStepIndex = -1;
             _delayMacro = _recordingMacro;
             VoiceMacroCaptureService.Instance.SuspendCapture();
             var pendingDelay = _draft.GetPendingDelayMilliseconds(_delayMacro.Id);
             SetInputFieldText(_delayInputField, pendingDelay > 0 ? pendingDelay.ToString(CultureInfo.InvariantCulture) : string.Empty);
             _delayModalBlockedFrame = Time.frameCount;
+            if (_delayTitleText != null)
+            {
+                _delayTitleText.text = "添加延迟";
+            }
             _recordingModal.SetActive(false);
             _delayModal.SetActive(true);
             RefreshDynamicContent();
@@ -771,6 +1028,13 @@ namespace HkVoiceMod.UI
             }
 
             _draft.SetPendingDelayMilliseconds(_delayMacro.Id, milliseconds);
+            if (_editingDelayStepIndex >= 0 && _editingDelayStepIndex < _delayMacro.Steps.Count)
+            {
+                _delayMacro.Steps[_editingDelayStepIndex].DelaySeconds = milliseconds / 1000f;
+                CloseDelayModal(true);
+                return;
+            }
+
             VoiceSettingsMenuBuilder.AppendDelayStep(_draft, _delayMacro, milliseconds);
             CloseDelayModal(true);
         }
@@ -794,6 +1058,7 @@ namespace HkVoiceMod.UI
 
             _delayMacro = null;
             _delayModalBlockedFrame = -1;
+            _editingDelayStepIndex = -1;
             VoiceMacroCaptureService.Instance.ResumeCapture();
             RefreshDynamicContent();
             if (!appendDelay)
@@ -815,6 +1080,8 @@ namespace HkVoiceMod.UI
             _delayMacro = null;
             _recordingStartSnapshot = null;
             _delayModalBlockedFrame = -1;
+            _editingActionStepIndex = -1;
+            _editingDelayStepIndex = -1;
 
             if (_delayModal != null)
             {
@@ -845,43 +1112,53 @@ namespace HkVoiceMod.UI
                 var isRecording = VoiceMacroCaptureService.Instance.IsCapturing(_recordingMacro.Id);
                 var hasSession = VoiceMacroCaptureService.Instance.HasCaptureSession(_recordingMacro.Id);
                 var isSuspended = VoiceMacroCaptureService.Instance.IsCaptureSuspended(_recordingMacro.Id);
+                var isAwaitingSingleKeyInput = VoiceMacroCaptureService.Instance.IsAwaitingSingleKeyInput(_recordingMacro.Id);
 
                 if (_recordingHintText != null)
                 {
-                    _recordingHintText.text = isRecording
-                        ? "正在录制：按游戏当前绑定键会直接加入步骤；如需删除、确认或取消，请先点击“停止录制”。"
-                        : "当前未录制：点击“开始录制”后才会追加步骤；停止录制时可使用 Backspace / Enter / Esc。";
+                    if (isAwaitingSingleKeyInput && _editingActionStepIndex >= 0)
+                    {
+                        _recordingHintText.text = $"正在修改第 {_editingActionStepIndex + 1} 步：请按新的游戏按键，按 Esc 取消。";
+                    }
+                    else
+                    {
+                        _recordingHintText.text = isRecording
+                            ? "正在录制：按游戏当前绑定键会直接加入步骤；如需删除、确认或取消，请先点击“停止录制”。"
+                            : "当前未录制：点击“开始录制”后才会追加步骤；停止录制时也可以直接点击下方某一步修改动作或延迟。";
+                    }
                 }
 
                 if (_recordingStartButton != null)
                 {
-                    _recordingStartButton.interactable = hasSession && !isRecording && !isSuspended;
+                    _recordingStartButton.interactable = hasSession && !isRecording && !isSuspended && !isAwaitingSingleKeyInput;
                 }
 
                 if (_recordingStopButton != null)
                 {
-                    _recordingStopButton.interactable = hasSession && isRecording;
+                    _recordingStopButton.interactable = hasSession && isRecording && !isAwaitingSingleKeyInput;
                 }
 
                 if (_recordingClearButton != null)
                 {
-                    _recordingClearButton.interactable = hasSession && !isRecording && _recordingMacro.Steps.Count > 0;
+                    _recordingClearButton.interactable = hasSession && !isRecording && !isAwaitingSingleKeyInput && _recordingMacro.Steps.Count > 0;
                 }
 
-                if (_recordingPreviewText != null)
-                {
-                    _recordingPreviewText.text = VoiceSettingsMenuBuilder.FormatMacroSteps(_recordingMacro, VoiceMacroCaptureService.Instance.Resolver);
-                }
+                RefreshRecordingStepRows();
 
                 if (_recordingStatusText != null)
                 {
-                    _recordingStatusText.text = VoiceMacroCaptureService.Instance.GetStatusText(_recordingMacro.Id);
+                    _recordingStatusText.text = isAwaitingSingleKeyInput && _editingActionStepIndex >= 0
+                        ? $"等待新的动作输入：第 {_editingActionStepIndex + 1} 步会在收到按键后立即替换。"
+                        : VoiceMacroCaptureService.Instance.GetStatusText(_recordingMacro.Id);
                 }
             }
 
             if (_draft != null && _delayMacro != null && _delayHintText != null)
             {
-                _delayHintText.text = $"当前将插入：{_draft.GetPendingDelayMilliseconds(_delayMacro.Id)} 毫秒";
+                var pendingMilliseconds = _draft.GetPendingDelayMilliseconds(_delayMacro.Id);
+                _delayHintText.text = _editingDelayStepIndex >= 0
+                    ? $"当前将修改为：{pendingMilliseconds} 毫秒"
+                    : $"当前将插入：{pendingMilliseconds} 毫秒";
             }
         }
 
@@ -1313,6 +1590,19 @@ namespace HkVoiceMod.UI
             public Text SummaryText { get; set; } = null!;
 
             public Text RecordButtonText { get; set; } = null!;
+        }
+
+        private sealed class RecordingStepRowWidgets
+        {
+            public GameObject Root { get; set; } = null!;
+
+            public Text IndexText { get; set; } = null!;
+
+            public Text KindText { get; set; } = null!;
+
+            public Button ValueButton { get; set; } = null!;
+
+            public Text ValueText { get; set; } = null!;
         }
     }
 }
