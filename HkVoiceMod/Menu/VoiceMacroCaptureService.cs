@@ -13,6 +13,8 @@ namespace HkVoiceMod.Menu
         private readonly GameKeybindNameResolver _resolver = new GameKeybindNameResolver();
         private VoiceMacroCaptureBehaviour? _behaviour;
         private string? _capturingMacroId;
+        private bool _isCaptureSuspended;
+        private int _resumeBlockedFrame = -1;
         private Action<HeroActionKey>? _onActionKey;
         private Action? _onDeleteLast;
         private Action? _onCancel;
@@ -29,6 +31,11 @@ namespace HkVoiceMod.Menu
 
         public string GetStatusText(string macroId)
         {
+            if (IsCapturing(macroId) && _isCaptureSuspended)
+            {
+                return "录制已暂停：正在编辑 Delay 毫秒数；返回录制页后会继续捕获按键。";
+            }
+
             return IsCapturing(macroId)
                 ? "录制中：按游戏当前绑定键追加步骤；Backspace 删除末尾，Esc 取消本次录制，Enter 确认本次录制。"
                 : "未录制：点击“开始录制”，再按游戏当前绑定键追加步骤。";
@@ -43,15 +50,40 @@ namespace HkVoiceMod.Menu
 
             EnsureMonitor();
             _capturingMacroId = macroId;
+            _isCaptureSuspended = false;
+            _resumeBlockedFrame = -1;
             _onActionKey = onActionKey ?? throw new ArgumentNullException(nameof(onActionKey));
             _onDeleteLast = onDeleteLast ?? throw new ArgumentNullException(nameof(onDeleteLast));
             _onCancel = onCancel ?? throw new ArgumentNullException(nameof(onCancel));
             _onConfirm = onConfirm ?? throw new ArgumentNullException(nameof(onConfirm));
         }
 
+        public void SuspendCapture()
+        {
+            if (_capturingMacroId == null)
+            {
+                return;
+            }
+
+            _isCaptureSuspended = true;
+        }
+
+        public void ResumeCapture()
+        {
+            if (_capturingMacroId == null)
+            {
+                return;
+            }
+
+            _isCaptureSuspended = false;
+            _resumeBlockedFrame = Time.frameCount;
+        }
+
         public void StopCapture()
         {
             _capturingMacroId = null;
+            _isCaptureSuspended = false;
+            _resumeBlockedFrame = -1;
             _onActionKey = null;
             _onDeleteLast = null;
             _onCancel = null;
@@ -73,7 +105,12 @@ namespace HkVoiceMod.Menu
 
         private void Poll()
         {
-            if (_capturingMacroId == null || !global::UnityEngine.Input.anyKeyDown)
+            if (_capturingMacroId == null || _isCaptureSuspended || !global::UnityEngine.Input.anyKeyDown)
+            {
+                return;
+            }
+
+            if (_resumeBlockedFrame == Time.frameCount)
             {
                 return;
             }
