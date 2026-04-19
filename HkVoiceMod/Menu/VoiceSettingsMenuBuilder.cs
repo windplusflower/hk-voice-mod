@@ -61,6 +61,7 @@ namespace HkVoiceMod.Menu
                 DisplayName = string.Empty,
                 WakeWord = string.Empty,
                 KeywordThreshold = -1f,
+                KeyEvents = new List<VoiceMacroKeyEvent>(),
                 Steps = new List<VoiceMacroStep>(),
                 IsPreset = false
             };
@@ -117,6 +118,35 @@ namespace HkVoiceMod.Menu
 
             mod.LogWarn(result.Message);
             return false;
+        }
+
+        internal static string FormatMacroEventSequence(VoiceMacroConfig macro, GameKeybindNameResolver resolver)
+        {
+            if (macro.KeyEvents == null || macro.KeyEvents.Count == 0)
+            {
+                return "<空>";
+            }
+
+            var parts = new List<string>(macro.KeyEvents.Count * 2);
+            for (var index = 0; index < macro.KeyEvents.Count; index++)
+            {
+                var keyEvent = macro.KeyEvents[index];
+                if (keyEvent == null)
+                {
+                    continue;
+                }
+
+                if (index > 0)
+                {
+                    parts.Add($"(delay {Math.Max(0, keyEvent.DelayBeforeMilliseconds)}ms)");
+                }
+
+                var actionName = resolver.GetDisplayName(keyEvent.ActionButton);
+                var kindText = keyEvent.EventKind == VoiceMacroKeyEventKind.Down ? "按下" : "松开";
+                parts.Add($"({actionName}:{kindText})");
+            }
+
+            return parts.Count == 0 ? "<空>" : string.Join(",", parts.ToArray());
         }
 
         internal static string FormatMacroSteps(VoiceMacroConfig macro, GameKeybindNameResolver resolver)

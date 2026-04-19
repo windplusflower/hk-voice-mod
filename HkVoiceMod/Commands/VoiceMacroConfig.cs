@@ -14,12 +14,26 @@ namespace HkVoiceMod.Commands
 
         public float KeywordThreshold { get; set; }
 
+        public List<VoiceMacroKeyEvent> KeyEvents { get; set; } = new List<VoiceMacroKeyEvent>();
+
         public List<VoiceMacroStep> Steps { get; set; } = new List<VoiceMacroStep>();
 
         public bool IsPreset { get; set; }
 
         public VoiceMacroConfig Clone()
         {
+            var clonedKeyEvents = new List<VoiceMacroKeyEvent>(KeyEvents?.Count ?? 0);
+            if (KeyEvents != null)
+            {
+                foreach (var keyEvent in KeyEvents)
+                {
+                    if (keyEvent != null)
+                    {
+                        clonedKeyEvents.Add(keyEvent.Clone());
+                    }
+                }
+            }
+
             var clonedSteps = new List<VoiceMacroStep>(Steps?.Count ?? 0);
             if (Steps != null)
             {
@@ -38,6 +52,7 @@ namespace HkVoiceMod.Commands
                 DisplayName = DisplayName,
                 WakeWord = WakeWord,
                 KeywordThreshold = KeywordThreshold,
+                KeyEvents = clonedKeyEvents,
                 Steps = clonedSteps,
                 IsPreset = IsPreset
             };

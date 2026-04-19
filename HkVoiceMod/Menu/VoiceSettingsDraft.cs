@@ -27,7 +27,6 @@ namespace HkVoiceMod.Menu
         public static VoiceSettingsDraft FromAppliedSettings(VoiceModSettings settings)
         {
             var clone = settings?.Clone() ?? new VoiceModSettings();
-            clone.MigrateLegacyCommandConfigsIfNeeded();
             clone.EnsureMacroDefaults();
             return new VoiceSettingsDraft(clone);
         }
@@ -118,6 +117,23 @@ namespace HkVoiceMod.Menu
             return null;
         }
 
+        public List<VoiceMacroKeyEvent> CloneMacroKeyEvents(string macroId)
+        {
+            var macro = FindMacro(macroId);
+            return CloneKeyEvents(macro?.KeyEvents);
+        }
+
+        public void ReplaceMacroKeyEvents(string macroId, List<VoiceMacroKeyEvent> keyEvents)
+        {
+            var macro = FindMacro(macroId);
+            if (macro == null)
+            {
+                return;
+            }
+
+            macro.KeyEvents = CloneKeyEvents(keyEvents);
+        }
+
         public List<VoiceMacroStep> CloneMacroSteps(string macroId)
         {
             var macro = FindMacro(macroId);
@@ -198,9 +214,7 @@ namespace HkVoiceMod.Menu
             var pending = _pendingSettings.Clone();
             var applied = appliedSettings?.Clone() ?? new VoiceModSettings();
 
-            pending.MigrateLegacyCommandConfigsIfNeeded();
             pending.EnsureMacroDefaults();
-            applied.MigrateLegacyCommandConfigsIfNeeded();
             applied.EnsureMacroDefaults();
 
             var pendingStop = pending.StopKeywordConfig;
@@ -247,19 +261,19 @@ namespace HkVoiceMod.Menu
                 return true;
             }
 
-            if ((pending.Steps?.Count ?? 0) != (applied.Steps?.Count ?? 0))
+            if ((pending.KeyEvents?.Count ?? 0) != (applied.KeyEvents?.Count ?? 0))
             {
                 return true;
             }
 
-            if (pending.Steps == null || applied.Steps == null)
+            if (pending.KeyEvents == null || applied.KeyEvents == null)
             {
                 return false;
             }
 
-            for (var index = 0; index < pending.Steps.Count; index++)
+            for (var index = 0; index < pending.KeyEvents.Count; index++)
             {
-                if (StepChanged(pending.Steps[index], applied.Steps[index]))
+                if (KeyEventChanged(pending.KeyEvents[index], applied.KeyEvents[index]))
                 {
                     return true;
                 }
@@ -279,36 +293,31 @@ namespace HkVoiceMod.Menu
             return (config.DisplayName ?? string.Empty).Trim();
         }
 
-        private static bool StepChanged(VoiceMacroStep pending, VoiceMacroStep applied)
+        private static bool KeyEventChanged(VoiceMacroKeyEvent pending, VoiceMacroKeyEvent applied)
         {
-            if (pending.StepKind != applied.StepKind
-                || pending.PressMode != applied.PressMode
-                || Math.Abs(pending.DurationSeconds - applied.DurationSeconds) > 0.0001f
-                || pending.ReleaseOppositeHorizontalHold != applied.ReleaseOppositeHorizontalHold
-                || Math.Abs(pending.DelaySeconds - applied.DelaySeconds) > 0.0001f)
+            return pending.DelayBeforeMilliseconds != applied.DelayBeforeMilliseconds
+                || pending.ActionButton != applied.ActionButton
+                || pending.EventKind != applied.EventKind
+                || !string.Equals(pending.PairId, applied.PairId, StringComparison.Ordinal);
+        }
+
+        private static List<VoiceMacroKeyEvent> CloneKeyEvents(List<VoiceMacroKeyEvent>? keyEvents)
+        {
+            var clones = new List<VoiceMacroKeyEvent>(keyEvents?.Count ?? 0);
+            if (keyEvents == null)
             {
-                return true;
+                return clones;
             }
 
-            if ((pending.Keys?.Count ?? 0) != (applied.Keys?.Count ?? 0))
+            foreach (var keyEvent in keyEvents)
             {
-                return true;
-            }
-
-            if (pending.Keys == null || applied.Keys == null)
-            {
-                return false;
-            }
-
-            for (var index = 0; index < pending.Keys.Count; index++)
-            {
-                if (pending.Keys[index] != applied.Keys[index])
+                if (keyEvent != null)
                 {
-                    return true;
+                    clones.Add(keyEvent.Clone());
                 }
             }
 
-            return false;
+            return clones;
         }
 
         private static List<VoiceMacroStep> CloneSteps(List<VoiceMacroStep>? steps)
