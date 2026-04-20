@@ -32,20 +32,20 @@ namespace HkVoiceMod.UI
         private const float DiscardButtonWidth = 220f;
         private const float DeleteButtonWidth = 120f;
 
-        private static readonly Color FullscreenDimColor = new Color(0.03f, 0.04f, 0.08f, 0.82f);
-        private static readonly Color WindowColor = new Color(0.10f, 0.12f, 0.16f, 0.97f);
-        private static readonly Color SectionColor = new Color(0.14f, 0.17f, 0.22f, 0.98f);
-        private static readonly Color RowColor = new Color(0.16f, 0.19f, 0.25f, 1f);
-        private static readonly Color ModalColor = new Color(0.09f, 0.11f, 0.16f, 0.99f);
-        private static readonly Color InputColor = new Color(0.07f, 0.08f, 0.11f, 1f);
-        private static readonly Color PrimaryButtonColor = new Color(0.22f, 0.52f, 0.78f, 0.98f);
-        private static readonly Color SecondaryButtonColor = new Color(0.24f, 0.28f, 0.36f, 0.98f);
-        private static readonly Color DangerButtonColor = new Color(0.66f, 0.24f, 0.27f, 0.98f);
-        private static readonly Color TextColor = new Color(0.95f, 0.96f, 0.98f, 1f);
-        private static readonly Color MutedTextColor = new Color(0.72f, 0.76f, 0.82f, 1f);
-        private static readonly Color PlaceholderTextColor = new Color(0.55f, 0.60f, 0.68f, 0.95f);
-        private static readonly Color SuccessTextColor = new Color(0.67f, 0.89f, 0.73f, 1f);
-        private static readonly Color ErrorTextColor = new Color(0.97f, 0.63f, 0.63f, 1f);
+        internal static readonly Color FullscreenDimColor = new Color(0.02f, 0.02f, 0.04f, 0.84f);
+        internal static readonly Color WindowColor = new Color(0.07f, 0.07f, 0.09f, 0.97f);
+        internal static readonly Color SectionColor = new Color(0.11f, 0.11f, 0.13f, 0.98f);
+        internal static readonly Color RowColor = new Color(0.14f, 0.14f, 0.16f, 1f);
+        private static readonly Color ModalColor = new Color(0.08f, 0.08f, 0.10f, 0.99f);
+        internal static readonly Color InputColor = new Color(0.06f, 0.06f, 0.07f, 1f);
+        internal static readonly Color PrimaryButtonColor = new Color(0.31f, 0.31f, 0.34f, 0.99f);
+        internal static readonly Color SecondaryButtonColor = new Color(0.22f, 0.22f, 0.25f, 0.99f);
+        internal static readonly Color DangerButtonColor = new Color(0.25f, 0.24f, 0.24f, 0.99f);
+        internal static readonly Color TextColor = new Color(0.92f, 0.90f, 0.85f, 1f);
+        internal static readonly Color MutedTextColor = new Color(0.71f, 0.69f, 0.64f, 1f);
+        internal static readonly Color PlaceholderTextColor = new Color(0.50f, 0.49f, 0.46f, 0.94f);
+        internal static readonly Color SuccessTextColor = new Color(0.81f, 0.84f, 0.81f, 1f);
+        internal static readonly Color ErrorTextColor = new Color(0.82f, 0.78f, 0.76f, 1f);
 
         private static VoiceSettingsWindowController? _instance;
 
@@ -53,6 +53,7 @@ namespace HkVoiceMod.UI
         private readonly List<RecordingStepRowWidgets> _recordingStepRows = new List<RecordingStepRowWidgets>();
         private readonly List<RecordingTimelineRowModel> _recordingTimelineRows = new List<RecordingTimelineRowModel>();
         private Font? _font;
+        private VoiceSettingsTheme? _theme;
         private HkVoiceMod? _mod;
         private VoiceSettingsDraft? _draft;
         private Canvas? _canvas;
@@ -104,6 +105,7 @@ namespace HkVoiceMod.UI
         {
             _mod = mod ?? throw new ArgumentNullException(nameof(mod));
             _ = returnScreen ?? throw new ArgumentNullException(nameof(returnScreen));
+            ResolveTheme(returnScreen);
             _draft = VoiceSettingsDraft.FromAppliedSettings(_mod.Settings);
             _stopThresholdText = FormatThresholdText(_draft.PendingStopKeywordConfig.KeywordThreshold);
             _recordingMacro = null;
@@ -115,6 +117,7 @@ namespace HkVoiceMod.UI
             _isClosingWindow = false;
 
             EnsureBuilt();
+            ApplyThemeToExistingTree();
             EnsureEventSystem();
             VoiceMacroCaptureService.Instance.StopCapture();
             if (_recordingModal != null)
@@ -210,7 +213,7 @@ namespace HkVoiceMod.UI
                 return;
             }
 
-            _font = ResolveFont();
+            _font = _theme?.PrimaryFont ?? ResolveFont();
 
             _canvas = gameObject.AddComponent<Canvas>();
             _canvas.renderMode = RenderMode.ScreenSpaceOverlay;
@@ -1216,7 +1219,10 @@ namespace HkVoiceMod.UI
             }
 
             _statusText.text = message ?? string.Empty;
-            _statusText.color = isError ? ErrorTextColor : (isSuccess ? SuccessTextColor : MutedTextColor);
+            var theme = _theme;
+            _statusText.color = isError
+                ? theme?.ErrorTextColor ?? ErrorTextColor
+                : (isSuccess ? theme?.SuccessTextColor ?? SuccessTextColor : theme?.MutedTextColor ?? MutedTextColor);
         }
 
         private void SetVisible(bool visible)
@@ -1307,6 +1313,278 @@ namespace HkVoiceMod.UI
             }
 
             return Resources.GetBuiltinResource<Font>("Arial.ttf");
+        }
+
+        private void ResolveTheme(MenuScreen returnScreen)
+        {
+            var fallbackFont = ResolveFont();
+            _theme = VoiceSettingsThemeResolver.Resolve(returnScreen, fallbackFont);
+            _font = _theme.PrimaryFont;
+        }
+
+        private void ApplyThemeToExistingTree()
+        {
+            if (_canvas == null || _theme == null)
+            {
+                return;
+            }
+
+            var buttons = _canvas.GetComponentsInChildren<Button>(true);
+            for (var index = 0; index < buttons.Length; index++)
+            {
+                var button = buttons[index];
+                if (button == null)
+                {
+                    continue;
+                }
+
+                var labelText = button.GetComponentInChildren<Text>(true);
+                if (labelText == null)
+                {
+                    continue;
+                }
+
+                ApplyButtonTheme(button, labelText, ResolveButtonKind(button.gameObject.name, (button.targetGraphic as Image)?.color ?? SecondaryButtonColor));
+            }
+
+            var inputFields = _canvas.GetComponentsInChildren<InputField>(true);
+            for (var index = 0; index < inputFields.Length; index++)
+            {
+                ApplyInputTheme(inputFields[index]);
+            }
+
+            var images = _canvas.GetComponentsInChildren<Image>(true);
+            for (var index = 0; index < images.Length; index++)
+            {
+                var image = images[index];
+                if (image == null
+                    || image.GetComponent<Button>() != null
+                    || image.GetComponent<InputField>() != null
+                    || string.Equals(image.gameObject.name, "Viewport", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                ApplyPanelTheme(image, image.gameObject.name, image.color);
+            }
+
+            var texts = _canvas.GetComponentsInChildren<Text>(true);
+            for (var index = 0; index < texts.Length; index++)
+            {
+                var text = texts[index];
+                if (text == null
+                    || text.GetComponentInParent<Button>() != null
+                    || text.GetComponentInParent<InputField>() != null)
+                {
+                    continue;
+                }
+
+                ApplyTextTheme(text, IsMutedTextName(text.gameObject.name));
+            }
+
+            if (_statusText != null)
+            {
+                ApplyTextTheme(_statusText, true);
+            }
+        }
+
+        private void ApplyImageTheme(Image image, Sprite? sprite, bool useSliced, Color tint)
+        {
+            if (image == null)
+            {
+                return;
+            }
+
+            image.sprite = sprite;
+            image.type = sprite != null && useSliced ? Image.Type.Sliced : Image.Type.Simple;
+            image.color = tint;
+            image.preserveAspect = false;
+        }
+
+        private void ApplyTextTheme(Text text, bool muted)
+        {
+            if (text == null)
+            {
+                return;
+            }
+
+            var theme = _theme;
+            if (theme == null)
+            {
+                return;
+            }
+
+            text.font = theme.PrimaryFont;
+            text.color = muted ? theme.MutedTextColor : theme.TextColor;
+        }
+
+        private void ApplyButtonTheme(Button button, Text labelText, VoiceThemeButtonKind kind)
+        {
+            if (button == null || _theme == null)
+            {
+                return;
+            }
+
+            var image = button.targetGraphic as Image;
+            if (image != null)
+            {
+                ApplyImageTheme(image, _theme.GetButtonSprite(kind), _theme.ButtonSpriteIsSliced, _theme.GetButtonTint(kind));
+            }
+
+            button.transition = Selectable.Transition.ColorTint;
+            switch (kind)
+            {
+                case VoiceThemeButtonKind.Primary:
+                    button.colors = _theme.CreatePrimaryButtonColors();
+                    break;
+                case VoiceThemeButtonKind.Danger:
+                    button.colors = _theme.CreateDangerButtonColors();
+                    break;
+                default:
+                    button.colors = _theme.CreateSecondaryButtonColors();
+                    break;
+            }
+
+            if (labelText != null)
+            {
+                labelText.font = _theme.PrimaryFont;
+                labelText.color = _theme.TextColor;
+            }
+        }
+
+        private void ApplyInputTheme(InputField inputField)
+        {
+            if (inputField == null || _theme == null)
+            {
+                return;
+            }
+
+            var image = inputField.targetGraphic as Image;
+            if (image != null)
+            {
+                ApplyImageTheme(image, _theme.InputSprite, _theme.InputSpriteIsSliced, _theme.InputTint);
+            }
+
+            inputField.transition = Selectable.Transition.ColorTint;
+            inputField.colors = _theme.CreateInputColors();
+            if (inputField.textComponent != null)
+            {
+                inputField.textComponent.font = _theme.PrimaryFont;
+                inputField.textComponent.color = _theme.TextColor;
+            }
+
+            var placeholderText = inputField.placeholder as Text;
+            if (placeholderText != null)
+            {
+                placeholderText.font = _theme.PrimaryFont;
+                placeholderText.color = _theme.PlaceholderTextColor;
+            }
+        }
+
+        private void ApplyPanelTheme(Image image, string name, Color fallbackColor)
+        {
+            if (_theme == null)
+            {
+                return;
+            }
+
+            if (string.Equals(name, "Root", StringComparison.Ordinal)
+                || ColorsMatch(fallbackColor, FullscreenDimColor))
+            {
+                ApplyImageTheme(image, null, false, _theme.FullscreenDimColor);
+                return;
+            }
+
+            if (string.Equals(name, "ModalHost", StringComparison.Ordinal) || fallbackColor.a < 0.75f)
+            {
+                ApplyImageTheme(
+                    image,
+                    null,
+                    false,
+                    new Color(_theme.FullscreenDimColor.r, _theme.FullscreenDimColor.g, _theme.FullscreenDimColor.b, fallbackColor.a));
+                return;
+            }
+
+            if (string.Equals(name, "Window", StringComparison.Ordinal)
+                || name.EndsWith("Modal", StringComparison.Ordinal)
+                || ColorsMatch(fallbackColor, WindowColor)
+                || ColorsMatch(fallbackColor, ModalColor))
+            {
+                ApplyImageTheme(image, _theme.WindowSprite, _theme.WindowSpriteIsSliced, _theme.WindowTint);
+                return;
+            }
+
+            if (name.IndexOf("Section", StringComparison.OrdinalIgnoreCase) >= 0
+                || string.Equals(name, "Header", StringComparison.Ordinal)
+                || string.Equals(name, "Footer", StringComparison.Ordinal)
+                || name.IndexOf("PreviewPanel", StringComparison.OrdinalIgnoreCase) >= 0
+                || ColorsMatch(fallbackColor, SectionColor))
+            {
+                ApplyImageTheme(image, _theme.SectionSprite, _theme.SectionSpriteIsSliced, _theme.SectionTint);
+                return;
+            }
+
+            if (name.IndexOf("Scroll", StringComparison.OrdinalIgnoreCase) >= 0
+                || ColorsMatch(fallbackColor, InputColor))
+            {
+                ApplyImageTheme(image, _theme.InputSprite, _theme.InputSpriteIsSliced, _theme.InputTint);
+                return;
+            }
+
+            ApplyImageTheme(image, _theme.RowSprite, _theme.RowSpriteIsSliced, _theme.RowTint);
+        }
+
+        private static VoiceThemeButtonKind ResolveButtonKind(string name, Color fallbackColor)
+        {
+            if (name.IndexOf("Delete", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Discard", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Clear", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return VoiceThemeButtonKind.Danger;
+            }
+
+            if (name.IndexOf("Apply", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Confirm", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Start", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Record", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return VoiceThemeButtonKind.Primary;
+            }
+
+            return ResolveButtonKind(fallbackColor);
+        }
+
+        private static VoiceThemeButtonKind ResolveButtonKind(Color fallbackColor)
+        {
+            if (ColorsMatch(fallbackColor, DangerButtonColor))
+            {
+                return VoiceThemeButtonKind.Danger;
+            }
+
+            if (ColorsMatch(fallbackColor, PrimaryButtonColor))
+            {
+                return VoiceThemeButtonKind.Primary;
+            }
+
+            return VoiceThemeButtonKind.Secondary;
+        }
+
+        private static bool IsMutedTextName(string name)
+        {
+            return name.IndexOf("Subtitle", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Hint", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Summary", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Empty", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Status", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Kind", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static bool ColorsMatch(Color left, Color right)
+        {
+            return Mathf.Abs(left.r - right.r) <= 0.01f
+                && Mathf.Abs(left.g - right.g) <= 0.01f
+                && Mathf.Abs(left.b - right.b) <= 0.01f
+                && Mathf.Abs(left.a - right.a) <= 0.01f;
         }
 
         private static void StretchToParent(GameObject gameObject)
@@ -1405,22 +1683,11 @@ namespace HkVoiceMod.UI
             AddLayoutElement(inputObject, width, FieldHeight, 0f);
 
             var image = inputObject.GetComponent<Image>();
-            image.color = InputColor;
-            image.type = Image.Type.Sliced;
 
             inputField = inputObject.GetComponent<InputField>();
             inputField.targetGraphic = image;
             inputField.contentType = contentType;
             inputField.lineType = InputField.LineType.SingleLine;
-            inputField.transition = Selectable.Transition.ColorTint;
-
-            var colors = inputField.colors;
-            colors.normalColor = InputColor;
-            colors.highlightedColor = new Color(0.11f, 0.13f, 0.18f, 1f);
-            colors.pressedColor = new Color(0.10f, 0.12f, 0.16f, 1f);
-            colors.selectedColor = new Color(0.14f, 0.18f, 0.24f, 1f);
-            colors.disabledColor = new Color(0.12f, 0.12f, 0.12f, 0.6f);
-            inputField.colors = colors;
 
             var textObject = new GameObject("Text", typeof(RectTransform), typeof(Text));
             textObject.transform.SetParent(inputObject.transform, false);
@@ -1431,9 +1698,9 @@ namespace HkVoiceMod.UI
             textRect.offsetMax = new Vector2(-12f, -8f);
 
             var text = textObject.GetComponent<Text>();
-            text.font = _font;
+            text.font = _theme?.PrimaryFont ?? _font;
             text.fontSize = 22;
-            text.color = TextColor;
+            text.color = _theme?.TextColor ?? TextColor;
             text.alignment = TextAnchor.MiddleLeft;
             text.text = string.Empty;
             text.horizontalOverflow = HorizontalWrapMode.Overflow;
@@ -1450,10 +1717,10 @@ namespace HkVoiceMod.UI
             placeholderRect.offsetMax = new Vector2(-12f, -8f);
 
             var placeholderText = placeholderObject.GetComponent<Text>();
-            placeholderText.font = _font;
+            placeholderText.font = _theme?.PrimaryFont ?? _font;
             placeholderText.fontSize = 22;
             placeholderText.fontStyle = FontStyle.Italic;
-            placeholderText.color = PlaceholderTextColor;
+            placeholderText.color = _theme?.PlaceholderTextColor ?? PlaceholderTextColor;
             placeholderText.alignment = TextAnchor.MiddleLeft;
             placeholderText.horizontalOverflow = HorizontalWrapMode.Overflow;
             placeholderText.verticalOverflow = VerticalWrapMode.Truncate;
@@ -1463,6 +1730,7 @@ namespace HkVoiceMod.UI
             inputField.textComponent = text;
             inputField.placeholder = placeholderText;
             inputField.onValueChanged.AddListener(value => onValueChanged(value));
+            ApplyInputTheme(inputField);
         }
 
         private void CreateButton(Transform parent, string name, string label, float width, Color backgroundColor, Action onClick, out Text labelText)
@@ -1477,20 +1745,9 @@ namespace HkVoiceMod.UI
             AddLayoutElement(buttonObject, width, FieldHeight, 0f);
 
             var image = buttonObject.GetComponent<Image>();
-            image.color = backgroundColor;
-            image.type = Image.Type.Sliced;
 
             button = buttonObject.GetComponent<Button>();
             button.targetGraphic = image;
-            button.transition = Selectable.Transition.ColorTint;
-
-            var colors = button.colors;
-            colors.normalColor = backgroundColor;
-            colors.highlightedColor = Color.Lerp(backgroundColor, Color.white, 0.12f);
-            colors.pressedColor = Color.Lerp(backgroundColor, Color.black, 0.18f);
-            colors.selectedColor = Color.Lerp(backgroundColor, Color.white, 0.08f);
-            colors.disabledColor = new Color(backgroundColor.r, backgroundColor.g, backgroundColor.b, 0.5f);
-            button.colors = colors;
             button.onClick.AddListener(() => onClick());
 
             labelText = CreateText(buttonObject.transform, $"{name}Label", label, 22, TextColor, FontStyle.Bold, TextAnchor.MiddleCenter, TextAnchor.MiddleCenter, FieldHeight);
@@ -1504,6 +1761,7 @@ namespace HkVoiceMod.UI
             labelText.resizeTextMinSize = 18;
             labelText.resizeTextMaxSize = 22;
             labelText.raycastTarget = false;
+            ApplyButtonTheme(button, labelText, ResolveButtonKind(name, backgroundColor));
         }
 
         private GameObject CreatePanel(Transform parent, string name, Color color)
@@ -1511,8 +1769,7 @@ namespace HkVoiceMod.UI
             var panel = new GameObject(name, typeof(RectTransform), typeof(Image));
             panel.transform.SetParent(parent, false);
             var image = panel.GetComponent<Image>();
-            image.color = color;
-            image.type = Image.Type.Sliced;
+            ApplyPanelTheme(image, name, color);
             return panel;
         }
 
@@ -1523,11 +1780,28 @@ namespace HkVoiceMod.UI
             AddLayoutElement(textObject, preferredWidth, preferredHeight, flexibleHeight ? 1f : 0f);
 
             var text = textObject.GetComponent<Text>();
-            text.font = _font;
+            text.font = _theme?.PrimaryFont ?? _font;
             text.text = textValue;
             text.fontSize = fontSize;
             text.fontStyle = fontStyle;
-            text.color = color;
+            if (ColorsMatch(color, PlaceholderTextColor))
+            {
+                text.color = _theme?.PlaceholderTextColor ?? PlaceholderTextColor;
+            }
+            else if (ColorsMatch(color, ErrorTextColor))
+            {
+                text.color = _theme?.ErrorTextColor ?? ErrorTextColor;
+            }
+            else if (ColorsMatch(color, SuccessTextColor))
+            {
+                text.color = _theme?.SuccessTextColor ?? SuccessTextColor;
+            }
+            else
+            {
+                text.color = ColorsMatch(color, MutedTextColor)
+                    ? _theme?.MutedTextColor ?? MutedTextColor
+                    : _theme?.TextColor ?? TextColor;
+            }
             text.alignment = alignment;
             text.horizontalOverflow = HorizontalWrapMode.Wrap;
             text.verticalOverflow = VerticalWrapMode.Overflow;
