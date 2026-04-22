@@ -248,7 +248,9 @@ namespace HkVoiceMod.UI
             windowLayout.childForceExpandHeight = false;
             windowLayout.childForceExpandWidth = true;
 
-            var header = CreateSection(window.transform, "Header", 128f);
+            CreateSection(window.transform, "TopOrnamentSection", 48f);
+            var header = CreatePanel(window.transform, "HeaderContent", WindowColor);
+            AddLayoutElement(header, -1f, 128f, 0f);
             var headerLayout = header.AddComponent<VerticalLayoutGroup>();
             headerLayout.padding = new RectOffset(16, 16, 10, 10);
             headerLayout.spacing = 6f;
@@ -261,7 +263,10 @@ namespace HkVoiceMod.UI
             CreateText(header.transform, "Subtitle", "在这里设置停止词和语音宏。", 20, MutedTextColor, FontStyle.Normal, TextAnchor.UpperLeft, TextAnchor.MiddleLeft, 22f);
             _statusText = CreateText(header.transform, "Status", string.Empty, 20, MutedTextColor, FontStyle.Normal, TextAnchor.MiddleLeft, TextAnchor.MiddleLeft, 22f);
 
-            var stopSection = CreateSection(window.transform, "StopSection", 112f);
+            AddLayoutElement(CreatePanel(window.transform, "StopDividerLine", new Color(0.78f, 0.72f, 0.58f, 0.30f)), -1f, 2f, 0f);
+
+            var stopSection = CreatePanel(window.transform, "StopContent", WindowColor);
+            AddLayoutElement(stopSection, -1f, 112f, 0f);
             var stopLayout = stopSection.AddComponent<VerticalLayoutGroup>();
             stopLayout.padding = new RectOffset(16, 16, 10, 10);
             stopLayout.spacing = 8f;
@@ -330,15 +335,18 @@ namespace HkVoiceMod.UI
             var macroScroll = CreateScrollView(macroSection.transform, "MacroScroll", out _macroListContent, 0f);
             AddLayoutElement(macroScroll, -1f, -1f, 1f);
 
-            var footer = CreateSection(window.transform, "Footer", 74f);
+            var footer = CreatePanel(window.transform, "FooterContent", WindowColor);
+            AddLayoutElement(footer, -1f, 74f, 0f);
             var footerLayout = CreateHorizontalLayout(footer.transform, 10f, new RectOffset(12, 12, 12, 12));
             footerLayout.childAlignment = TextAnchor.MiddleRight;
 
-            CreateButton(footer.transform, "AddMacroButton", "新增语音宏", SecondaryButtonWidth, SecondaryButtonColor, AddMacro, out _);
+            CreateButton(footer.transform, "AddMacroButton", "新增语音宏", SecondaryButtonWidth, SecondaryButtonColor, AddMacro, out _, true);
             CreateSpacer(footer.transform, "FooterSpacer", 1f);
-            CreateButton(footer.transform, "ApplyButton", "保存", PrimaryButtonWidth, PrimaryButtonColor, ApplyCurrentDraft, out _);
-            CreateButton(footer.transform, "DiscardButton", "放弃更改", DiscardButtonWidth, DangerButtonColor, DiscardAndClose, out _);
-            CreateButton(footer.transform, "BackButton", "返回", PrimaryButtonWidth, SecondaryButtonColor, RequestBack, out _);
+            CreateButton(footer.transform, "ApplyButton", "保存", PrimaryButtonWidth, PrimaryButtonColor, ApplyCurrentDraft, out _, true);
+            CreateButton(footer.transform, "DiscardButton", "放弃更改", DiscardButtonWidth, DangerButtonColor, DiscardAndClose, out _, true);
+            CreateButton(footer.transform, "BackButton", "返回", PrimaryButtonWidth, SecondaryButtonColor, RequestBack, out _, true);
+
+            CreateSection(window.transform, "BottomOrnamentSection", 48f);
 
             _modalHost = CreatePanel(root.transform, "ModalHost", new Color(0f, 0f, 0f, 0.55f));
             StretchToParent(_modalHost);
@@ -822,8 +830,8 @@ namespace HkVoiceMod.UI
             }, out var thresholdInput);
             SetInputFieldText(thresholdInput, _draft != null ? _draft.GetPendingThresholdText(macro.Id) : string.Empty);
 
-            CreateButton(topRow.transform, $"MacroRecord-{macro.Id}", "录制", SecondaryButtonWidth, PrimaryButtonColor, () => OpenRecordingModal(macro), out var recordButtonText);
-            CreateButton(topRow.transform, $"MacroDelete-{macro.Id}", "删除", DeleteButtonWidth, DangerButtonColor, () => DeleteMacro(macro.Id), out _);
+            CreateButton(topRow.transform, $"MacroRecord-{macro.Id}", "录制", SecondaryButtonWidth, PrimaryButtonColor, () => OpenRecordingModal(macro), out var recordButtonText, true);
+            CreateButton(topRow.transform, $"MacroDelete-{macro.Id}", "删除", DeleteButtonWidth, DangerButtonColor, () => DeleteMacro(macro.Id), out _, true);
 
             var summaryText = CreateText(rowRoot.transform, $"MacroSummary-{macro.Id}", string.Empty, 20, MutedTextColor, FontStyle.Normal, TextAnchor.UpperLeft, TextAnchor.UpperLeft, -1f);
             summaryText.horizontalOverflow = HorizontalWrapMode.Wrap;
@@ -1360,6 +1368,7 @@ namespace HkVoiceMod.UI
                 if (image == null
                     || image.GetComponent<Button>() != null
                     || image.GetComponent<InputField>() != null
+                    || image.GetComponent<SettingsPageButtonOrnament>() != null
                     || string.Equals(image.gameObject.name, "Viewport", StringComparison.Ordinal))
                 {
                     continue;
@@ -1425,12 +1434,6 @@ namespace HkVoiceMod.UI
                 return;
             }
 
-            var image = button.targetGraphic as Image;
-            if (image != null)
-            {
-                ApplyImageTheme(image, _theme.GetButtonSprite(kind), _theme.ButtonSpriteIsSliced, _theme.GetButtonTint(kind));
-            }
-
             button.transition = Selectable.Transition.ColorTint;
             switch (kind)
             {
@@ -1443,6 +1446,20 @@ namespace HkVoiceMod.UI
                 default:
                     button.colors = _theme.CreateSecondaryButtonColors();
                     break;
+            }
+
+            var settingsPageStyle = button.GetComponent<SettingsPageButtonStyle>();
+            if (settingsPageStyle != null)
+            {
+                settingsPageStyle.Kind = kind;
+                settingsPageStyle.ApplyTheme(_theme);
+                return;
+            }
+
+            var image = button.targetGraphic as Image;
+            if (image != null)
+            {
+                ApplyImageTheme(image, _theme.GetButtonSprite(kind), _theme.ButtonSpriteIsSliced, _theme.GetButtonTint(kind));
             }
 
             if (labelText != null)
@@ -1462,7 +1479,7 @@ namespace HkVoiceMod.UI
             var image = inputField.targetGraphic as Image;
             if (image != null)
             {
-                ApplyImageTheme(image, _theme.InputSprite, _theme.InputSpriteIsSliced, _theme.InputTint);
+                ApplyImageTheme(image, null, false, Color.clear);
             }
 
             inputField.transition = Selectable.Transition.ColorTint;
@@ -1495,6 +1512,13 @@ namespace HkVoiceMod.UI
                 return;
             }
 
+            if (name.EndsWith("DividerLine", StringComparison.Ordinal)
+                || name.IndexOf("DividerLine", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                ApplyImageTheme(image, null, false, fallbackColor);
+                return;
+            }
+
             if (string.Equals(name, "ModalHost", StringComparison.Ordinal) || fallbackColor.a < 0.75f)
             {
                 ApplyImageTheme(
@@ -1510,7 +1534,21 @@ namespace HkVoiceMod.UI
                 || ColorsMatch(fallbackColor, WindowColor)
                 || ColorsMatch(fallbackColor, ModalColor))
             {
-                ApplyImageTheme(image, _theme.WindowSprite, _theme.WindowSpriteIsSliced, _theme.WindowTint);
+                ApplyImageTheme(image, null, false, Color.clear);
+                return;
+            }
+
+            if (string.Equals(name, "MacroSection", StringComparison.Ordinal)
+                || string.Equals(name, "RecordingPreviewPanel", StringComparison.Ordinal))
+            {
+                ApplyImageTheme(image, null, false, Color.clear);
+                return;
+            }
+
+            if (name.StartsWith("MacroRow-", StringComparison.Ordinal)
+                || name.StartsWith("RecordingStep-", StringComparison.Ordinal))
+            {
+                ApplyImageTheme(image, null, false, Color.clear);
                 return;
             }
 
@@ -1527,7 +1565,7 @@ namespace HkVoiceMod.UI
             if (name.IndexOf("Scroll", StringComparison.OrdinalIgnoreCase) >= 0
                 || ColorsMatch(fallbackColor, InputColor))
             {
-                ApplyImageTheme(image, _theme.InputSprite, _theme.InputSpriteIsSliced, _theme.InputTint);
+                ApplyImageTheme(image, null, false, Color.clear);
                 return;
             }
 
@@ -1735,16 +1773,27 @@ namespace HkVoiceMod.UI
 
         private void CreateButton(Transform parent, string name, string label, float width, Color backgroundColor, Action onClick, out Text labelText)
         {
-            CreateButton(parent, name, label, width, backgroundColor, onClick, out _, out labelText);
+            CreateButton(parent, name, label, width, backgroundColor, onClick, out _, out labelText, false);
+        }
+
+        private void CreateButton(Transform parent, string name, string label, float width, Color backgroundColor, Action onClick, out Text labelText, bool useSettingsPageStyle)
+        {
+            CreateButton(parent, name, label, width, backgroundColor, onClick, out _, out labelText, useSettingsPageStyle);
         }
 
         private void CreateButton(Transform parent, string name, string label, float width, Color backgroundColor, Action onClick, out Button button, out Text labelText)
+        {
+            CreateButton(parent, name, label, width, backgroundColor, onClick, out button, out labelText, false);
+        }
+
+        private void CreateButton(Transform parent, string name, string label, float width, Color backgroundColor, Action onClick, out Button button, out Text labelText, bool useSettingsPageStyle)
         {
             var buttonObject = new GameObject(name, typeof(RectTransform), typeof(Image), typeof(Button));
             buttonObject.transform.SetParent(parent, false);
             AddLayoutElement(buttonObject, width, FieldHeight, 0f);
 
             var image = buttonObject.GetComponent<Image>();
+            var kind = ResolveButtonKind(name, backgroundColor);
 
             button = buttonObject.GetComponent<Button>();
             button.targetGraphic = image;
@@ -1753,15 +1802,45 @@ namespace HkVoiceMod.UI
             labelText = CreateText(buttonObject.transform, $"{name}Label", label, 22, TextColor, FontStyle.Bold, TextAnchor.MiddleCenter, TextAnchor.MiddleCenter, FieldHeight);
             StretchToParent(labelText.gameObject);
             var labelRect = labelText.GetComponent<RectTransform>();
-            labelRect.offsetMin = new Vector2(10f, 6f);
-            labelRect.offsetMax = new Vector2(-10f, -6f);
+            labelRect.offsetMin = new Vector2(useSettingsPageStyle ? 32f : 10f, 6f);
+            labelRect.offsetMax = new Vector2(useSettingsPageStyle ? -32f : -10f, -6f);
             labelText.horizontalOverflow = HorizontalWrapMode.Wrap;
             labelText.verticalOverflow = VerticalWrapMode.Truncate;
             labelText.resizeTextForBestFit = true;
             labelText.resizeTextMinSize = 18;
             labelText.resizeTextMaxSize = 22;
             labelText.raycastTarget = false;
-            ApplyButtonTheme(button, labelText, ResolveButtonKind(name, backgroundColor));
+
+            if (useSettingsPageStyle)
+            {
+                var settingsPageStyle = buttonObject.AddComponent<SettingsPageButtonStyle>();
+                settingsPageStyle.Button = button;
+                settingsPageStyle.LabelText = labelText;
+                settingsPageStyle.LeftArrow = CreateSettingsPageButtonOrnament(buttonObject.transform, $"{name}LeftArrow", false);
+                settingsPageStyle.RightArrow = CreateSettingsPageButtonOrnament(buttonObject.transform, $"{name}RightArrow", true);
+                settingsPageStyle.Kind = kind;
+            }
+
+            ApplyButtonTheme(button, labelText, kind);
+        }
+
+        private static Image CreateSettingsPageButtonOrnament(Transform parent, string name, bool alignRight)
+        {
+            var ornament = new GameObject(name, typeof(RectTransform), typeof(Image), typeof(SettingsPageButtonOrnament));
+            ornament.transform.SetParent(parent, false);
+
+            var ornamentRect = ornament.GetComponent<RectTransform>();
+            ornamentRect.anchorMin = new Vector2(alignRight ? 1f : 0f, 0.5f);
+            ornamentRect.anchorMax = ornamentRect.anchorMin;
+            ornamentRect.pivot = new Vector2(0.5f, 0.5f);
+            ornamentRect.sizeDelta = new Vector2(28f, 36f);
+            ornamentRect.anchoredPosition = new Vector2(alignRight ? -18f : 18f, 0f);
+
+            var ornamentImage = ornament.GetComponent<Image>();
+            ornamentImage.raycastTarget = false;
+            ornamentImage.enabled = false;
+            ornamentImage.fillCenter = false;
+            return ornamentImage;
         }
 
         private GameObject CreatePanel(Transform parent, string name, Color color)
@@ -1926,6 +2005,120 @@ namespace HkVoiceMod.UI
             public int EventIndex { get; set; }
 
             public string PairId { get; set; } = string.Empty;
+        }
+
+        private sealed class SettingsPageButtonOrnament : MonoBehaviour
+        {
+        }
+
+        private sealed class SettingsPageButtonStyle : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler, ISelectHandler, IDeselectHandler
+        {
+            public Button Button { get; set; } = null!;
+
+            public Text LabelText { get; set; } = null!;
+
+            public Image LeftArrow { get; set; } = null!;
+
+            public Image RightArrow { get; set; } = null!;
+
+            public VoiceThemeButtonKind Kind { get; set; }
+
+            private bool _isHovered;
+            private bool _isSelected;
+
+            public void ApplyTheme(VoiceSettingsTheme theme)
+            {
+                if (Button != null)
+                {
+                    var buttonImage = Button.targetGraphic as Image;
+                    if (buttonImage != null)
+                    {
+                        buttonImage.sprite = null;
+                        buttonImage.type = Image.Type.Simple;
+                        buttonImage.color = Color.clear;
+                        buttonImage.preserveAspect = false;
+                    }
+                }
+
+                if (LabelText != null)
+                {
+                    LabelText.font = theme.PrimaryFont;
+                    LabelText.color = theme.TextColor;
+                }
+
+                ApplyOrnamentTheme(LeftArrow, theme, false);
+                ApplyOrnamentTheme(RightArrow, theme, true);
+                _isSelected = EventSystem.current != null && EventSystem.current.currentSelectedGameObject == gameObject;
+                RefreshVisualState();
+            }
+
+            public void OnPointerEnter(PointerEventData eventData)
+            {
+                _isHovered = true;
+                RefreshVisualState();
+            }
+
+            public void OnPointerExit(PointerEventData eventData)
+            {
+                _isHovered = false;
+                _isSelected = EventSystem.current != null && EventSystem.current.currentSelectedGameObject == gameObject;
+                RefreshVisualState();
+            }
+
+            public void OnSelect(BaseEventData eventData)
+            {
+                _isSelected = true;
+                RefreshVisualState();
+            }
+
+            public void OnDeselect(BaseEventData eventData)
+            {
+                _isSelected = false;
+                RefreshVisualState();
+            }
+
+            private void OnEnable()
+            {
+                _isSelected = EventSystem.current != null && EventSystem.current.currentSelectedGameObject == gameObject;
+                RefreshVisualState();
+            }
+
+            private void OnDisable()
+            {
+                _isHovered = false;
+                _isSelected = false;
+                RefreshVisualState();
+            }
+
+            private void ApplyOrnamentTheme(Image image, VoiceSettingsTheme theme, bool flipHorizontally)
+            {
+                if (image == null)
+                {
+                    return;
+                }
+
+                var sprite = theme.GetButtonSprite(Kind);
+                image.sprite = sprite;
+                image.type = sprite != null && theme.ButtonSpriteIsSliced ? Image.Type.Sliced : Image.Type.Simple;
+                image.color = theme.GetButtonTint(Kind);
+                image.preserveAspect = false;
+                image.fillCenter = false;
+                image.rectTransform.localScale = new Vector3(flipHorizontally ? -1f : 1f, 1f, 1f);
+            }
+
+            private void RefreshVisualState()
+            {
+                var showOrnaments = Button != null && Button.interactable && (_isHovered || _isSelected);
+                if (LeftArrow != null)
+                {
+                    LeftArrow.enabled = showOrnaments;
+                }
+
+                if (RightArrow != null)
+                {
+                    RightArrow.enabled = showOrnaments;
+                }
+            }
         }
     }
 }
