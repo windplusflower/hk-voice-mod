@@ -403,12 +403,12 @@ namespace HkVoiceMod.UI
             var actionRow = CreateHorizontalGroup(modal.transform, "RecordingActions", 16f, 60f, new RectOffset(0, 0, 4, 0));
             actionRow.GetComponent<HorizontalLayoutGroup>().childAlignment = TextAnchor.MiddleRight;
             CreateSpacer(actionRow.transform, "RecordingActionSpacer", 1f);
-            CreateButton(actionRow.transform, "RecordingStart", "开始录制", SecondaryButtonWidth, PrimaryButtonColor, StartRecordingFromButton, out _recordingStartButton, out _);
-            CreateButton(actionRow.transform, "RecordingStop", "停止录制", SecondaryButtonWidth, SecondaryButtonColor, StopRecordingFromButton, out _recordingStopButton, out _);
-            CreateButton(actionRow.transform, "RecordingClear", "清空", SecondaryButtonWidth, DangerButtonColor, ClearRecordingFromButton, out _recordingClearButton, out _);
-            CreateButton(actionRow.transform, "RecordingDelay", "插入延迟", SecondaryButtonWidth, SecondaryButtonColor, OpenDelayModal, out _);
-            CreateButton(actionRow.transform, "RecordingConfirm", "确认", SecondaryButtonWidth, PrimaryButtonColor, ConfirmRecordingFromButton, out _);
-            CreateButton(actionRow.transform, "RecordingCancel", "取消", SecondaryButtonWidth, SecondaryButtonColor, CancelRecordingFromButton, out _);
+            CreateButton(actionRow.transform, "RecordingStart", "开始录制", SecondaryButtonWidth, PrimaryButtonColor, StartRecordingFromButton, out _recordingStartButton, out _, true);
+            CreateButton(actionRow.transform, "RecordingStop", "停止录制", SecondaryButtonWidth, SecondaryButtonColor, StopRecordingFromButton, out _recordingStopButton, out _, true);
+            CreateButton(actionRow.transform, "RecordingClear", "清空", SecondaryButtonWidth, DangerButtonColor, ClearRecordingFromButton, out _recordingClearButton, out _, true);
+            CreateButton(actionRow.transform, "RecordingDelay", "插入延迟", SecondaryButtonWidth, SecondaryButtonColor, OpenDelayModal, out _, true);
+            CreateButton(actionRow.transform, "RecordingConfirm", "确认", SecondaryButtonWidth, PrimaryButtonColor, ConfirmRecordingFromButton, out _, true);
+            CreateButton(actionRow.transform, "RecordingCancel", "取消", SecondaryButtonWidth, SecondaryButtonColor, CancelRecordingFromButton, out _, true);
 
             modal.SetActive(false);
             return modal;
@@ -513,7 +513,7 @@ namespace HkVoiceMod.UI
 
             var indexText = CreateText(rowRoot.transform, $"RecordingStepIndex-{rowIndex}", $"{rowIndex + 1}.", 20, TextColor, FontStyle.Bold, TextAnchor.MiddleLeft, TextAnchor.MiddleLeft, FieldHeight, false, 56f);
             var kindText = CreateText(rowRoot.transform, $"RecordingStepKind-{rowIndex}", string.Empty, 20, MutedTextColor, FontStyle.Bold, TextAnchor.MiddleLeft, TextAnchor.MiddleLeft, FieldHeight, false, 80f);
-            CreateButton(rowRoot.transform, $"RecordingStepValue-{rowIndex}", string.Empty, -1f, SecondaryButtonColor, () => HandleRecordingStepClick(rowIndex), out var valueButton, out var valueText);
+            CreateButton(rowRoot.transform, $"RecordingStepValue-{rowIndex}", string.Empty, -1f, SecondaryButtonColor, () => HandleRecordingStepClick(rowIndex), out var valueButton, out var valueText, true);
 
             var buttonLayout = valueButton.GetComponent<LayoutElement>();
             if (buttonLayout != null)
@@ -2100,7 +2100,7 @@ namespace HkVoiceMod.UI
                 var sprite = theme.GetButtonSprite(Kind);
                 image.sprite = sprite;
                 image.type = sprite != null && theme.ButtonSpriteIsSliced ? Image.Type.Sliced : Image.Type.Simple;
-                image.color = theme.GetButtonTint(Kind);
+                image.color = Color.white;
                 image.preserveAspect = false;
                 image.fillCenter = false;
                 image.rectTransform.localScale = new Vector3(flipHorizontally ? -1f : 1f, 1f, 1f);
