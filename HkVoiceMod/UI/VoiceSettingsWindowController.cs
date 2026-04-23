@@ -84,6 +84,8 @@ namespace HkVoiceMod.UI
         private int _editingDelayStepIndex = -1;
         private string _stopThresholdText = string.Empty;
         private bool _isClosingWindow;
+        private MenuScreen? _hiddenNativeMenuScreen;
+        private bool _hiddenNativeMenuWasActive;
 
         internal static VoiceSettingsWindowController Instance
         {
@@ -106,6 +108,7 @@ namespace HkVoiceMod.UI
             _mod = mod ?? throw new ArgumentNullException(nameof(mod));
             _ = returnScreen ?? throw new ArgumentNullException(nameof(returnScreen));
             ResolveTheme(returnScreen);
+            HideNativeMenu(returnScreen);
             _draft = VoiceSettingsDraft.FromAppliedSettings(_mod.Settings);
             _stopThresholdText = FormatThresholdText(_draft.PendingStopKeywordConfig.KeywordThreshold);
             _recordingMacro = null;
@@ -200,6 +203,8 @@ namespace HkVoiceMod.UI
 
         private void OnDestroy()
         {
+            RestoreNativeMenu();
+
             if (_instance == this)
             {
                 _instance = null;
@@ -1146,7 +1151,39 @@ namespace HkVoiceMod.UI
 
             HideModalHostIfIdle();
             SetVisible(false);
+            RestoreNativeMenu();
             SelectGameObject(null);
+        }
+
+        private void HideNativeMenu(MenuScreen returnScreen)
+        {
+            RestoreNativeMenu();
+
+            _hiddenNativeMenuScreen = returnScreen;
+            _hiddenNativeMenuWasActive = returnScreen.gameObject.activeSelf;
+            if (_hiddenNativeMenuWasActive)
+            {
+                returnScreen.gameObject.SetActive(false);
+            }
+        }
+
+        private void RestoreNativeMenu()
+        {
+            var hiddenNativeMenuScreen = _hiddenNativeMenuScreen;
+            var hiddenNativeMenuWasActive = _hiddenNativeMenuWasActive;
+            _hiddenNativeMenuScreen = null;
+            _hiddenNativeMenuWasActive = false;
+
+            if (!hiddenNativeMenuWasActive || hiddenNativeMenuScreen == null)
+            {
+                return;
+            }
+
+            var hiddenNativeMenuObject = hiddenNativeMenuScreen.gameObject;
+            if (hiddenNativeMenuObject != null)
+            {
+                hiddenNativeMenuObject.SetActive(true);
+            }
         }
 
         private void RefreshDynamicContent()
