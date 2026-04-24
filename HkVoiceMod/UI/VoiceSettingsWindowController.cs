@@ -1,12 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Text;
 using HkVoiceMod.Commands;
 using HkVoiceMod.Menu;
 using Modding;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
+using System.Collections;
 
 namespace HkVoiceMod.UI
 {
@@ -58,6 +60,7 @@ namespace HkVoiceMod.UI
         private VoiceSettingsDraft? _draft;
         private Canvas? _canvas;
         private CanvasGroup? _canvasGroup;
+        private CanvasGroup? _windowCanvasGroup;
         private RectTransform? _macroListContent;
         private GameObject? _modalHost;
         private GameObject? _recordingModal;
@@ -84,6 +87,7 @@ namespace HkVoiceMod.UI
         private int _editingDelayStepIndex = -1;
         private string _stopThresholdText = string.Empty;
         private bool _isClosingWindow;
+        private bool _hasLoggedRecordingTextProbe;
         private MenuScreen? _hiddenNativeMenuScreen;
         private bool _hiddenNativeMenuWasActive;
 
@@ -118,8 +122,10 @@ namespace HkVoiceMod.UI
             _editingPairId = null;
             _editingDelayStepIndex = -1;
             _isClosingWindow = false;
+            _hasLoggedRecordingTextProbe = false;
 
             EnsureBuilt();
+            SetWindowPageVisible(true);
             ApplyThemeToExistingTree();
             EnsureEventSystem();
             VoiceMacroCaptureService.Instance.StopCapture();
@@ -238,6 +244,7 @@ namespace HkVoiceMod.UI
             StretchToParent(root);
 
             var window = CreatePanel(root.transform, "Window", WindowColor);
+            _windowCanvasGroup = window.AddComponent<CanvasGroup>();
             var windowRect = window.GetComponent<RectTransform>();
             windowRect.anchorMin = new Vector2(0.5f, 0.5f);
             windowRect.anchorMax = new Vector2(0.5f, 0.5f);
@@ -527,7 +534,13 @@ namespace HkVoiceMod.UI
                 buttonLayout.minWidth = 420f;
             }
 
+            var valueLabelRect = valueText.rectTransform;
+            valueLabelRect.offsetMin = new Vector2(valueLabelRect.offsetMin.x, 1f);
+            valueLabelRect.offsetMax = new Vector2(valueLabelRect.offsetMax.x, -1f);
             valueText.alignment = TextAnchor.MiddleLeft;
+            valueText.horizontalOverflow = HorizontalWrapMode.Overflow;
+            valueText.verticalOverflow = VerticalWrapMode.Truncate;
+            valueText.resizeTextForBestFit = false;
 
             return new RecordingStepRowWidgets
             {
@@ -595,6 +608,8 @@ namespace HkVoiceMod.UI
                     : BuildRecordingStepValueText(rowModel, keyEvent, VoiceMacroCaptureService.Instance.Resolver);
                 row.ValueButton.interactable = canEdit;
             }
+
+            ScheduleRecordingTextProbe();
         }
 
         private void HandleRecordingStepClick(int rowIndex)
@@ -756,7 +771,221 @@ namespace HkVoiceMod.UI
                 return $"{Math.Max(0, keyEvent.DelayBeforeMilliseconds)} 毫秒";
             }
 
-            return resolver.GetDisplayName(keyEvent.ActionButton);
+            return BuildRecordingActionValueText(keyEvent.ActionButton, resolver);
+        }
+
+        private static string BuildRecordingActionValueText(global::GlobalEnums.HeroActionButton actionButton, GameKeybindNameResolver resolver)
+        {
+            switch (actionButton)
+            {
+                case global::GlobalEnums.HeroActionButton.LEFT:
+                    return "左移";
+                case global::GlobalEnums.HeroActionButton.RIGHT:
+                    return "右移";
+                case global::GlobalEnums.HeroActionButton.UP:
+                    return "上移";
+                case global::GlobalEnums.HeroActionButton.DOWN:
+                    return "下移";
+                case global::GlobalEnums.HeroActionButton.ATTACK:
+                    return "攻击";
+                case global::GlobalEnums.HeroActionButton.JUMP:
+                    return "跳跃";
+                case global::GlobalEnums.HeroActionButton.DASH:
+                    return "冲刺";
+                case global::GlobalEnums.HeroActionButton.SUPER_DASH:
+                    return "超级冲刺";
+                case global::GlobalEnums.HeroActionButton.CAST:
+                    return "法术";
+                case global::GlobalEnums.HeroActionButton.QUICK_CAST:
+                    return "快速施法";
+                case global::GlobalEnums.HeroActionButton.DREAM_NAIL:
+                    return "梦之钉";
+                case global::GlobalEnums.HeroActionButton.QUICK_MAP:
+                    return "快速地图";
+                case global::GlobalEnums.HeroActionButton.INVENTORY:
+                    return "物品栏";
+                default:
+                    if (resolver.TryGetPlayerAction(actionButton, out var action)
+                        && action != null
+                        && IsRenderableRecordingActionLabel(action.Name))
+                    {
+                        return action.Name.Trim();
+                    }
+
+                    return actionButton.ToString();
+            }
+        }
+
+        private static bool IsRenderableRecordingActionLabel(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return false;
+            }
+
+            var trimmed = value.Trim();
+            var normalized = trimmed.Replace(" ", string.Empty).Replace("_", string.Empty).Replace("-", string.Empty);
+            return !normalized.Equals("UNKNOWN", StringComparison.OrdinalIgnoreCase)
+                && !normalized.Equals("UNKNOWNKEY", StringComparison.OrdinalIgnoreCase)
+                && !normalized.Equals("UNBOUND", StringComparison.OrdinalIgnoreCase)
+                && !normalized.Equals("NONE", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void ScheduleRecordingTextProbe()
+        {
+            if (_hasLoggedRecordingTextProbe || !isActiveAndEnabled)
+            {
+                return;
+            }
+
+            StartCoroutine(LogRecordingTextProbeAtEndOfFrame());
+        }
+
+        private IEnumerator LogRecordingTextProbeAtEndOfFrame()
+        {
+            yield return null;
+            yield return new WaitForEndOfFrame();
+            LogRecordingTextProbeOnce();
+        }
+
+        private void LogRecordingTextProbeOnce()
+        {
+            if (_hasLoggedRecordingTextProbe || _mod == null || _recordingStepRows.Count == 0)
+            {
+                return;
+            }
+
+            Canvas.ForceUpdateCanvases();
+            if (_recordingStepListContent != null)
+            {
+                LayoutRebuilder.ForceRebuildLayoutImmediate(_recordingStepListContent);
+            }
+
+            var firstRow = _recordingStepRows[0];
+            var rowButton = firstRow.ValueButton;
+            var rowStyle = rowButton != null ? rowButton.GetComponent<SettingsPageButtonStyle>() : null;
+            var rowFirstText = rowButton != null ? rowButton.GetComponentInChildren<Text>(true) : null;
+            var rowTexts = rowButton != null ? rowButton.GetComponentsInChildren<Text>(true) : Array.Empty<Text>();
+
+            var referenceButton = _recordingStartButton;
+            var referenceStyle = referenceButton != null ? referenceButton.GetComponent<SettingsPageButtonStyle>() : null;
+            var referenceFirstText = referenceButton != null ? referenceButton.GetComponentInChildren<Text>(true) : null;
+            var referenceTexts = referenceButton != null ? referenceButton.GetComponentsInChildren<Text>(true) : Array.Empty<Text>();
+
+            var builder = new StringBuilder();
+            builder.AppendLine("[UIProbe] 录制行文字探针");
+            builder.AppendLine(DescribeButtonProbe("row.button", rowButton, rowStyle, rowFirstText, rowTexts));
+            builder.AppendLine(DescribeTextProbe("row.ValueText", firstRow.ValueText));
+            builder.AppendLine(DescribeTextProbe("row.style.LabelText", rowStyle != null ? rowStyle.LabelText : null));
+            builder.AppendLine(DescribeTextProbe("row.firstText", rowFirstText));
+            builder.AppendLine(DescribeButtonProbe("ref.button", referenceButton, referenceStyle, referenceFirstText, referenceTexts));
+            builder.AppendLine(DescribeTextProbe("ref.style.LabelText", referenceStyle != null ? referenceStyle.LabelText : null));
+            builder.AppendLine(DescribeTextProbe("ref.firstText", referenceFirstText));
+
+            _mod.LogWarn(builder.ToString().TrimEnd());
+            _hasLoggedRecordingTextProbe = true;
+        }
+
+        private static string DescribeButtonProbe(string tag, Button? button, SettingsPageButtonStyle? style, Text? firstText, Text[] texts)
+        {
+            if (button == null)
+            {
+                return $"{tag}: <null button>";
+            }
+
+            var image = button.targetGraphic as Image;
+            var rect = button.GetComponent<RectTransform>();
+            var childNames = new StringBuilder();
+            for (var index = 0; index < button.transform.childCount; index++)
+            {
+                if (index > 0)
+                {
+                    childNames.Append(", ");
+                }
+
+                childNames.Append(button.transform.GetChild(index).name);
+            }
+
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "{0}: name={1}, interactable={2}, active={3}, imageColor=({4:0.###},{5:0.###},{6:0.###},{7:0.###}), rect=({8:0.##}x{9:0.##}), styleLabel={10}, firstText={11}, textCount={12}, children=[{13}]",
+                tag,
+                button.gameObject.name,
+                button.interactable,
+                button.gameObject.activeInHierarchy,
+                image != null ? image.color.r : -1f,
+                image != null ? image.color.g : -1f,
+                image != null ? image.color.b : -1f,
+                image != null ? image.color.a : -1f,
+                rect != null ? rect.rect.width : -1f,
+                rect != null ? rect.rect.height : -1f,
+                style != null && style.LabelText != null ? style.LabelText.gameObject.name : "<null>",
+                firstText != null ? firstText.gameObject.name : "<null>",
+                texts.Length,
+                childNames.ToString());
+        }
+
+        private static string DescribeTextProbe(string tag, Text? text)
+        {
+            if (text == null)
+            {
+                return $"{tag}: <null text>";
+            }
+
+            var rect = text.rectTransform;
+            var parentName = text.transform.parent != null ? text.transform.parent.name : "<no-parent>";
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "{0}: name={1}, text='{2}', enabled={3}, active={4}, color=({5:0.###},{6:0.###},{7:0.###},{8:0.###}), font={9}, size={10}, align={11}, rect=({12:0.##}x{13:0.##}), preferred=({14:0.##}x{15:0.##}), charsVisible={16}, resizeBestFit={17}, bestFitRange=({18}-{19}), scale=({20:0.###},{21:0.###},{22:0.###}), offsetMin=({23:0.##},{24:0.##}), offsetMax=({25:0.##},{26:0.##}), parent={27}, sibling={28}, maskChain={29}",
+                tag,
+                text.gameObject.name,
+                (text.text ?? string.Empty).Replace("\r", "\\r").Replace("\n", "\\n"),
+                text.enabled,
+                text.gameObject.activeInHierarchy,
+                text.color.r,
+                text.color.g,
+                text.color.b,
+                text.color.a,
+                text.font != null ? text.font.name : "<null>",
+                text.fontSize,
+                text.alignment,
+                rect.rect.width,
+                rect.rect.height,
+                text.preferredWidth,
+                text.preferredHeight,
+                text.cachedTextGenerator.characterCountVisible,
+                text.resizeTextForBestFit,
+                text.resizeTextMinSize,
+                text.resizeTextMaxSize,
+                text.transform.lossyScale.x,
+                text.transform.lossyScale.y,
+                text.transform.lossyScale.z,
+                rect.offsetMin.x,
+                rect.offsetMin.y,
+                rect.offsetMax.x,
+                rect.offsetMax.y,
+                parentName,
+                text.transform.GetSiblingIndex(),
+                DescribeMaskChain(text.transform));
+        }
+
+        private static string DescribeMaskChain(Transform transform)
+        {
+            var parts = new List<string>();
+            var current = transform.parent;
+            while (current != null)
+            {
+                var hasRectMask = current.GetComponent<RectMask2D>() != null;
+                var hasMask = current.GetComponent<Mask>() != null;
+                if (hasRectMask || hasMask)
+                {
+                    parts.Add($"{current.name}(RectMask2D={hasRectMask},Mask={hasMask})");
+                }
+
+                current = current.parent;
+            }
+
+            return parts.Count == 0 ? "<none>" : string.Join(" -> ", parts.ToArray());
         }
 
         private void RebuildFromDraft()
@@ -949,6 +1178,7 @@ namespace HkVoiceMod.UI
             _recordingStartSnapshot = _draft.CloneMacroKeyEvents(macro.Id);
             _editingPairId = null;
             _editingDelayStepIndex = -1;
+            _hasLoggedRecordingTextProbe = false;
             _recordingTitleText.text = $"录制宏：{VoiceSettingsMenuBuilder.GetMacroDisplayName(macro)}";
 
             _modalHost.SetActive(true);
@@ -957,6 +1187,8 @@ namespace HkVoiceMod.UI
             {
                 _delayModal.SetActive(false);
             }
+
+            SetWindowPageVisible(false);
 
             VoiceMacroCaptureService.Instance.BeginCapture(
                 macro.Id,
@@ -1045,6 +1277,7 @@ namespace HkVoiceMod.UI
             _recordingStartSnapshot = null;
             _editingPairId = null;
             _editingDelayStepIndex = -1;
+            _hasLoggedRecordingTextProbe = false;
 
             if (_delayModal != null)
             {
@@ -1056,6 +1289,7 @@ namespace HkVoiceMod.UI
                 _recordingModal.SetActive(false);
             }
 
+            SetWindowPageVisible(true);
             HideModalHostIfIdle();
             RefreshDynamicContent();
         }
@@ -1151,6 +1385,7 @@ namespace HkVoiceMod.UI
 
             HideModalHostIfIdle();
             SetVisible(false);
+            SetWindowPageVisible(true);
             RestoreNativeMenu();
             SelectGameObject(null);
         }
@@ -1280,6 +1515,18 @@ namespace HkVoiceMod.UI
             _canvasGroup.alpha = visible ? 1f : 0f;
             _canvasGroup.blocksRaycasts = visible;
             _canvasGroup.interactable = visible;
+        }
+
+        private void SetWindowPageVisible(bool visible)
+        {
+            if (_windowCanvasGroup == null)
+            {
+                return;
+            }
+
+            _windowCanvasGroup.alpha = visible ? 1f : 0f;
+            _windowCanvasGroup.blocksRaycasts = visible;
+            _windowCanvasGroup.interactable = visible;
         }
 
         private bool IsVisible()
