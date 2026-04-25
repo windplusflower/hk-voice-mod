@@ -193,6 +193,7 @@ namespace HkVoiceMod
                     throw new InvalidOperationException($"宏 {config.DisplayName} 的阈值必须在 0.01 到 1.00 之间。");
                 }
 
+                NormalizeMacroKeyEvents(config);
                 ValidateMacroKeyEvents(config);
                 config.WakeWord = normalizedWakeWord;
             }
@@ -364,6 +365,26 @@ namespace HkVoiceMod
         private static string BuildDefaultPairId(VoiceCommand command, int actionIndex)
         {
             return $"{command.ToString().ToLowerInvariant()}-{actionIndex}";
+        }
+
+        private static void NormalizeMacroKeyEvents(VoiceMacroConfig config)
+        {
+            if (config?.KeyEvents == null || config.KeyEvents.Count == 0 || config.KeyEvents[0] == null)
+            {
+                return;
+            }
+
+            // Older builds could persist a leading delay that the current editor does not expose.
+            if (config.KeyEvents[0].DelayBeforeMilliseconds < 0)
+            {
+                config.KeyEvents[0].DelayBeforeMilliseconds = 0;
+                return;
+            }
+
+            if (config.KeyEvents[0].DelayBeforeMilliseconds > 0)
+            {
+                config.KeyEvents[0].DelayBeforeMilliseconds = 0;
+            }
         }
 
         private static void ValidateMacroKeyEvents(VoiceMacroConfig config)

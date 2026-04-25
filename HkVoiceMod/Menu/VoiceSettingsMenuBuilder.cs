@@ -105,7 +105,7 @@ namespace HkVoiceMod.Menu
             draft.ReplaceMacroSteps(macro.Id, steps);
         }
 
-        internal static bool TryApplyDraft(HkVoiceMod mod, VoiceSettingsDraft draft)
+        internal static ApplyVoiceSettingsResult TryApplyDraft(HkVoiceMod mod, VoiceSettingsDraft draft)
         {
             PrepareDraftForApply(draft);
 
@@ -113,11 +113,11 @@ namespace HkVoiceMod.Menu
             if (result.Success)
             {
                 mod.LogInfo(result.Message);
-                return true;
+                return result;
             }
 
             mod.LogWarn(result.Message);
-            return false;
+            return result;
         }
 
         internal static string FormatMacroEventSequence(VoiceMacroConfig macro, GameKeybindNameResolver resolver)

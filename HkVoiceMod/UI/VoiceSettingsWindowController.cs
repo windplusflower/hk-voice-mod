@@ -1126,13 +1126,14 @@ namespace HkVoiceMod.UI
                 return;
             }
 
-            if (VoiceSettingsMenuBuilder.TryApplyDraft(_mod, _draft))
+            var result = VoiceSettingsMenuBuilder.TryApplyDraft(_mod, _draft);
+            if (result.Success)
             {
                 SetStatus("已保存新的语音宏、停止词和阈值设置。", false, true);
                 return;
             }
 
-            SetStatus("保存失败：请检查空唤醒词、无效阈值或空事件序列。", true);
+            SetStatus(BuildApplyFailureStatus(result.Message, "保存失败"), true);
         }
 
         private void RequestBack()
@@ -1166,13 +1167,27 @@ namespace HkVoiceMod.UI
                 return;
             }
 
-            if (VoiceSettingsMenuBuilder.TryApplyDraft(_mod, _draft))
+            var result = VoiceSettingsMenuBuilder.TryApplyDraft(_mod, _draft);
+            if (result.Success)
             {
                 CloseWindow();
                 return;
             }
 
-            SetStatus("返回失败：自动保存未成功。你可以继续修改，或点击“放弃更改”直接关闭。", true);
+            SetStatus(BuildApplyFailureStatus(result.Message, "返回失败：自动保存未成功"), true);
+        }
+
+        private static string BuildApplyFailureStatus(string applyMessage, string prefix)
+        {
+            const string applyFailurePrefix = "Apply 失败：";
+            var normalizedPrefix = string.IsNullOrWhiteSpace(prefix) ? "保存失败" : prefix.Trim();
+            var detail = (applyMessage ?? string.Empty).Trim();
+            if (detail.StartsWith(applyFailurePrefix, StringComparison.Ordinal))
+            {
+                detail = detail.Substring(applyFailurePrefix.Length).Trim();
+            }
+
+            return detail.Length == 0 ? normalizedPrefix : $"{normalizedPrefix}：{detail}";
         }
 
         private void DiscardAndClose()
