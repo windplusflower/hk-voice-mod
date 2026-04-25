@@ -63,6 +63,7 @@ namespace HkVoiceMod.UI
         private Canvas? _canvas;
         private CanvasGroup? _canvasGroup;
         private CanvasGroup? _windowCanvasGroup;
+        private Coroutine? _pendingRevealCoroutine;
         private Sprite? _ornamentSectionSprite;
         private RectTransform? _macroListContent;
         private GameObject? _modalHost;
@@ -129,6 +130,7 @@ namespace HkVoiceMod.UI
             _editingDelayStepIndex = -1;
             _isClosingWindow = false;
             _hasLoggedRecordingTextProbe = false;
+            CancelPendingReveal();
 
             EnsureBuilt();
             SetWindowPageVisible(true);
@@ -148,15 +150,13 @@ namespace HkVoiceMod.UI
             HideModalHostIfIdle();
             RebuildFromDraft();
             SetStatus("打开录制页后默认不会立即采集；点击“开始录制”后才会追加按下/松开事件。", false);
-            SetVisible(true);
-            FocusInputField(_stopWakeWordInput);
+            BeginRevealAfterLayoutSettles();
         }
 
-        internal void ToggleFromMenu(HkVoiceMod mod, MenuScreen returnScreen)
+        internal void OpenFromMenu(HkVoiceMod mod, MenuScreen returnScreen)
         {
-            if (IsVisible())
+            if (IsVisible() || _pendingRevealCoroutine != null)
             {
-                RequestBack();
                 return;
             }
 
@@ -215,6 +215,7 @@ namespace HkVoiceMod.UI
 
         private void OnDestroy()
         {
+            CancelPendingReveal();
             RestoreNativeMenu();
 
             if (_instance == this)
@@ -245,6 +246,7 @@ namespace HkVoiceMod.UI
             gameObject.AddComponent<GraphicRaycaster>();
 
             _canvasGroup = gameObject.AddComponent<CanvasGroup>();
+            SetVisible(false);
 
             var root = CreatePanel(gameObject.transform, "Root", FullscreenDimColor);
             StretchToParent(root);
@@ -1308,6 +1310,7 @@ namespace HkVoiceMod.UI
             }
 
             _isClosingWindow = true;
+            CancelPendingReveal();
             VoiceMacroCaptureService.Instance.StopCapture();
             _recordingMacro = null;
             _delayMacro = null;
@@ -1468,6 +1471,72 @@ namespace HkVoiceMod.UI
             _canvasGroup.alpha = visible ? 1f : 0f;
             _canvasGroup.blocksRaycasts = visible;
             _canvasGroup.interactable = visible;
+        }
+
+        private void BeginRevealAfterLayoutSettles()
+        {
+            CancelPendingReveal();
+            SetVisible(false);
+
+            if (!isActiveAndEnabled)
+            {
+                FinalizeReveal();
+                return;
+            }
+
+            _pendingRevealCoroutine = StartCoroutine(RevealAfterLayoutSettles());
+        }
+
+        private IEnumerator RevealAfterLayoutSettles()
+        {
+            for (var pass = 0; pass < 2; pass++)
+            {
+                ForceRefreshWindowLayout();
+                yield return null;
+                yield return new WaitForEndOfFrame();
+            }
+
+            _pendingRevealCoroutine = null;
+            FinalizeReveal();
+        }
+
+        private void FinalizeReveal()
+        {
+            ForceRefreshWindowLayout();
+            SetVisible(true);
+            FocusInputField(_stopWakeWordInput);
+        }
+
+        private void ForceRefreshWindowLayout()
+        {
+            Canvas.ForceUpdateCanvases();
+
+            if (_windowCanvasGroup != null)
+            {
+                var windowRect = _windowCanvasGroup.GetComponent<RectTransform>();
+                if (windowRect != null)
+                {
+                    LayoutRebuilder.ForceRebuildLayoutImmediate(windowRect);
+                }
+            }
+
+            if (_macroListContent != null)
+            {
+                LayoutRebuilder.ForceRebuildLayoutImmediate(_macroListContent);
+            }
+
+            Canvas.ForceUpdateCanvases();
+        }
+
+        private void CancelPendingReveal()
+        {
+            if (_pendingRevealCoroutine == null)
+            {
+                return;
+            }
+
+            StopCoroutine(_pendingRevealCoroutine);
+            _pendingRevealCoroutine = null;
         }
 
         private void SetWindowPageVisible(bool visible)

@@ -26,13 +26,13 @@ namespace HkVoiceMod.Menu
                 28,
                 "hkvoicemod-settings-description");
             var overlayButton = new MenuButton(
-                "打开 / 关闭 自定义编辑器",
-                "显式切换自制编辑窗口。宏编辑、录制弹窗和 Delay 输入都在该窗口内完成。",
+                "打开自定义编辑器",
+                "打开自制编辑窗口。宏编辑、录制弹窗和 Delay 输入都在该窗口内完成。",
                 _ =>
                 {
                     if (menuScreen != null)
                     {
-                        VoiceSettingsWindowController.Instance.ToggleFromMenu(mod, menuScreen);
+                        VoiceSettingsWindowController.Instance.OpenFromMenu(mod, menuScreen);
                     }
                 },
                 false,

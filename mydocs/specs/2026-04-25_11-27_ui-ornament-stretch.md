@@ -20,7 +20,7 @@ None
   - `HkVoiceMod/UI/VoiceSettingsThemeResolver.cs`: 从 `MenuResources` 与返回菜单 `MenuScreen` 中解析字体、sprite 和颜色；`SectionSprite` 来源于这里。
   - `HkVoiceMod/UI/VoiceSettingsTheme.cs`: 主题对象定义，承载 `SectionSprite`、`SectionTint`、`SectionSpriteIsSliced` 等展示参数。
 - **Entry Points**:
-  - `HkVoiceMod/Menu/VoiceSettingsMenuBuilder.cs`: 薄设置页入口按钮，点击后调用 `VoiceSettingsWindowController.Instance.ToggleFromMenu(...)` 打开自定义编辑窗口。
+- `HkVoiceMod/Menu/VoiceSettingsMenuBuilder.cs`: 薄设置页入口按钮，点击后调用 `VoiceSettingsWindowController.Instance.OpenFromMenu(...)` 打开自定义编辑窗口。
 - **Data Models**:
   - 本任务无独立数据模型变更，主要涉及 Unity UI 视图构建参数。
 - **Dependencies**:
@@ -314,3 +314,88 @@ None
 - [x] 2. 调整 `ApplyPanelTheme(...)` 的 ornament 分支，使其优先使用 sticky ornament sprite。
 - [x] 3. 自检确认 reopen 时即便新 theme 解析到错误 sprite，也不会覆盖第一次成功显示过的 ornament 图案。
 - [x] 4. 运行 `dotnet build HkVoiceMod/HkVoiceMod.csproj -c Debug`，确认编译与部署成功。
+
+## 7. Follow-up Task: 入口按钮改为只打开，修复首开缩小闪现
+
+### 7.0 🚨 Open Questions
+None
+
+### 7.1 Requirements (Context)
+- **Goal**:
+  - 薄设置页入口按钮的文案从“打开 / 关闭 自定义编辑器”调整为仅表达“打开自定义编辑器”。
+  - 修复首次打开自定义编辑器时，先短暂显示一个缩小版窗口、随后才恢复正常尺寸的问题。
+- **In-Scope**:
+  - 调整薄设置页入口按钮文本与说明文案。
+  - 调整该按钮的调用行为，使其不再承担“关闭”语义。
+  - 检查自定义编辑器首次建树与首次显示顺序，避免布局未稳定时先被渲染出来。
+- **Out-of-Scope**:
+  - 不修改编辑器关闭路径；关闭仍然通过编辑器内部的“返回 / 放弃更改 / Esc”等现有路径处理。
+  - 不重做整套 UI 构建方式。
+
+### 7.2 Code Map (Project Topology)
+- `HkVoiceMod/Menu/VoiceSettingsMenuBuilder.cs`
+  - 薄设置页入口按钮文案与点击行为定义位置。
+- `HkVoiceMod/UI/VoiceSettingsWindowController.cs`
+  - `Show(...)`: 首次打开时的主题解析、建树、重建内容、最终显示顺序。
+  - `EnsureBuilt(...)`: 首次创建 overlay canvas 与 window 树的位置。
+  - `SetVisible(...)`: 整个 overlay 的显隐入口。
+
+### 7.3 Research Findings / Architecture
+- 当前入口按钮虽然用户只能“打开”它，但文案和调用方法仍然保留了 `Toggle` 语义，和真实交互不一致。
+- “首次打开先闪一个缩小版窗口”只发生在首开，高概率不是关闭/重开状态残留，而是**第一次建树完成后，窗口在最终布局稳定前就已经进入渲染**。
+- 最小修复方向：
+  - 薄设置页入口改为只调用 `OpenFromMenu(...)`，如果窗口已可见则直接忽略，不再走关闭分支。
+  - 首次建树时先让 overlay 保持隐藏；`RebuildFromDraft()` 完成后，先尝试同帧强制刷新 canvas 与 window 布局，再执行 `SetVisible(true)`。
+- 用户复测结论：仅做“同帧 `Canvas.ForceUpdateCanvases()` + `LayoutRebuilder.ForceRebuildLayoutImmediate(...)`”仍不足以消除首开缩小闪现，说明窗口尺寸还会在后续帧继续稳定。
+- 修正后的更稳妥方案：
+  - 保留首次建树时 overlay 隐藏；
+  - `Show(...)` 完成内容准备后不立即显示，而是启动一次短生命周期 reveal coroutine；
+  - 在 2 个布局稳定 pass（`yield return null` + `WaitForEndOfFrame`）后，再做最终布局刷新并 `SetVisible(true)`。
+
+### 7.4 Detailed Design & Implementation
+- `File: HkVoiceMod/Menu/VoiceSettingsMenuBuilder.cs`
+  - 将入口按钮标题改为：`打开自定义编辑器`
+  - 将按钮说明从“显式切换”改为“打开”语义。
+  - 点击行为从 `VoiceSettingsWindowController.Instance.ToggleFromMenu(...)` 改为 `VoiceSettingsWindowController.Instance.OpenFromMenu(...)`。
+- `File: HkVoiceMod/UI/VoiceSettingsWindowController.cs`
+  - 将 `ToggleFromMenu(...)` 改为 `OpenFromMenu(...)`：
+    - 若窗口已显示，则直接返回，不再关闭窗口；
+    - 否则继续调用 `Show(...)`。
+  - 在 `EnsureBuilt(...)` 中，`CanvasGroup` 创建后立即把 overlay 保持为隐藏状态，避免首次建树过程中被提前渲染。
+  - 在 `Show(...)` 中，`RebuildFromDraft()` 后不直接 `SetVisible(true)`，而是改为启动 reveal coroutine。
+  - 新增字段：`private Coroutine? _pendingRevealCoroutine;`
+    - 用于标记当前是否存在尚未完成的首开显示流程，避免重复打开或关闭时残留 reveal。
+  - 新增 helper：统一执行主窗口与宏列表的强制布局刷新。
+  - 新增 coroutine：连续等待 2 次布局稳定 pass 后，再做最终布局刷新并执行 `SetVisible(true)` 与 `FocusInputField(...)`。
+  - 在 `CloseWindow()` / 重新打开前，若存在未完成 reveal coroutine，先停止并清理。
+
+### 7.5 Execution Notes
+- 已执行方案：
+  - 薄设置页入口按钮标题改为 `打开自定义编辑器`，说明文案改为纯打开语义；
+  - 菜单入口调用由 `OpenFromMenu(...)` 接管，窗口已显示时直接忽略，不再反向关闭；
+  - 首次建树时在 `CanvasGroup` 创建后立即保持 overlay 隐藏；
+  - `Show(...)` 在 `RebuildFromDraft()` 后、`SetVisible(true)` 前先尝试同帧强制执行 canvas/layout 刷新。
+- 已执行结果：
+  - 薄设置页入口文案与真实交互一致，不再暗示“关闭”能力；
+  - 首次打开时不再把未稳定布局的窗口直接暴露给玩家，缩小版闪现概率降低；
+  - 关闭路径仍保持在编辑器内部的 `返回 / 放弃更改 / Esc` 逻辑中。
+- 已验证交付：`dotnet build HkVoiceMod/HkVoiceMod.csproj -c Debug` 成功，且产物已部署到游戏 Mods 目录。
+- 用户复测反馈：首次打开仍会闪一下，说明同帧强刷布局还不够，本节继续升级为“延迟 reveal 到布局稳定帧”的方案。
+- 二次执行结果：
+  - `VoiceSettingsWindowController` 已新增 `_pendingRevealCoroutine`；
+  - `Show(...)` 现在在内容准备完成后启动 reveal coroutine，而不是同帧直接显示；
+  - coroutine 会做 2 次布局稳定 pass，再执行最终布局刷新与 `SetVisible(true)`；
+  - `OpenFromMenu(...)` 在 reveal 未完成时会忽略重复打开；
+  - `CloseWindow()` / `OnDestroy()` 会清理未完成的 reveal coroutine，避免残留显示。
+- 已再次验证交付：`dotnet build HkVoiceMod/HkVoiceMod.csproj -c Debug` 成功，且产物已部署到游戏 Mods 目录。
+
+### 7.6 Implementation Checklist
+- [x] 1. 修改薄设置页入口按钮标题与说明文案，移除“打开 / 关闭 / 显式切换”语义。
+- [x] 2. 将菜单入口调用从 `ToggleFromMenu(...)` 改为 `OpenFromMenu(...)`。
+- [x] 3. 调整 `VoiceSettingsWindowController` 的入口方法，使其只负责打开，不再负责关闭。
+- [x] 4. 在首次建树阶段保持 overlay 隐藏，避免未完成布局的窗口被提前渲染。
+- [x] 5. 在 `Show(...)` 最终显示前强制刷新布局，降低首开缩小闪现概率。
+- [x] 6. 运行 `dotnet build HkVoiceMod/HkVoiceMod.csproj -c Debug`，确认编译与部署成功。
+- [x] 7. 新增延迟 reveal coroutine，在布局稳定后再显示窗口。
+- [x] 8. 在重新打开或关闭窗口时清理未完成的 reveal coroutine。
+- [x] 9. 再次运行 `dotnet build HkVoiceMod/HkVoiceMod.csproj -c Debug`，确认编译与部署成功。
