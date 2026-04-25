@@ -172,6 +172,38 @@ namespace HkVoiceMod.UI
             }
         }
 
+        public VoiceSettingsTheme WithSectionSprite(Sprite? sectionSprite, bool sectionSpriteIsSliced)
+        {
+            return new VoiceSettingsTheme(
+                PrimaryFont,
+                SecondaryFont,
+                WindowSprite,
+                sectionSprite,
+                RowSprite,
+                InputSprite,
+                PrimaryButtonSprite,
+                SecondaryButtonSprite,
+                DangerButtonSprite,
+                FullscreenDimColor,
+                WindowTint,
+                SectionTint,
+                RowTint,
+                InputTint,
+                PrimaryButtonTint,
+                SecondaryButtonTint,
+                DangerButtonTint,
+                TextColor,
+                MutedTextColor,
+                PlaceholderTextColor,
+                SuccessTextColor,
+                ErrorTextColor,
+                WindowSpriteIsSliced,
+                sectionSpriteIsSliced,
+                RowSpriteIsSliced,
+                InputSpriteIsSliced,
+                ButtonSpriteIsSliced);
+        }
+
         private static ColorBlock CreateButtonColors(Color baseColor)
         {
             var colors = ColorBlock.defaultColorBlock;

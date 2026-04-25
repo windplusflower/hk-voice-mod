@@ -23,6 +23,8 @@ namespace HkVoiceMod.UI
         private const float DelayModalWidth = 720f;
         private const float DelayModalHeight = 320f;
         private const float SectionSpacing = 8f;
+        private const float OrnamentSectionHeight = 72f;
+        private const float OrnamentVerticalScale = 1.35f;
         private const float RowSpacing = 10f;
         private const float FieldHeight = 50f;
         private const float StopWakeWordWidth = 360f;
@@ -61,6 +63,7 @@ namespace HkVoiceMod.UI
         private Canvas? _canvas;
         private CanvasGroup? _canvasGroup;
         private CanvasGroup? _windowCanvasGroup;
+        private Sprite? _ornamentSectionSprite;
         private RectTransform? _macroListContent;
         private GameObject? _modalHost;
         private GameObject? _recordingModal;
@@ -79,6 +82,8 @@ namespace HkVoiceMod.UI
         private Button? _recordingStartButton;
         private Button? _recordingStopButton;
         private Button? _recordingClearButton;
+        private Button? _recordingConfirmButton;
+        private Button? _recordingCancelButton;
         private VoiceMacroConfig? _recordingMacro;
         private VoiceMacroConfig? _delayMacro;
         private List<VoiceMacroKeyEvent>? _recordingStartSnapshot;
@@ -112,6 +117,7 @@ namespace HkVoiceMod.UI
             _mod = mod ?? throw new ArgumentNullException(nameof(mod));
             _ = returnScreen ?? throw new ArgumentNullException(nameof(returnScreen));
             ResolveTheme(returnScreen);
+            VoiceMacroCaptureService.Instance.Resolver.PrimeKeyboardMenuLabelCache();
             HideNativeMenu(returnScreen);
             _draft = VoiceSettingsDraft.FromAppliedSettings(_mod.Settings);
             _stopThresholdText = FormatThresholdText(_draft.PendingStopKeywordConfig.KeywordThreshold);
@@ -260,7 +266,7 @@ namespace HkVoiceMod.UI
             windowLayout.childForceExpandHeight = false;
             windowLayout.childForceExpandWidth = true;
 
-            CreateSection(window.transform, "TopOrnamentSection", 48f);
+            CreateSection(window.transform, "TopOrnamentSection", OrnamentSectionHeight);
             var header = CreatePanel(window.transform, "HeaderContent", WindowColor);
             AddLayoutElement(header, -1f, 128f, 0f);
             var headerLayout = header.AddComponent<VerticalLayoutGroup>();
@@ -358,7 +364,7 @@ namespace HkVoiceMod.UI
             CreateButton(footer.transform, "DiscardButton", "放弃更改", DiscardButtonWidth, DangerButtonColor, DiscardAndClose, out _, true);
             CreateButton(footer.transform, "BackButton", "返回", PrimaryButtonWidth, SecondaryButtonColor, RequestBack, out _, true);
 
-            CreateSection(window.transform, "BottomOrnamentSection", 48f);
+            CreateSection(window.transform, "BottomOrnamentSection", OrnamentSectionHeight);
 
             _modalHost = CreatePanel(root.transform, "ModalHost", new Color(0f, 0f, 0f, 0.55f));
             StretchToParent(_modalHost);
@@ -418,9 +424,8 @@ namespace HkVoiceMod.UI
             CreateButton(actionRow.transform, "RecordingStart", "开始录制", SecondaryButtonWidth, PrimaryButtonColor, StartRecordingFromButton, out _recordingStartButton, out _, true);
             CreateButton(actionRow.transform, "RecordingStop", "停止录制", SecondaryButtonWidth, SecondaryButtonColor, StopRecordingFromButton, out _recordingStopButton, out _, true);
             CreateButton(actionRow.transform, "RecordingClear", "清空", SecondaryButtonWidth, DangerButtonColor, ClearRecordingFromButton, out _recordingClearButton, out _, true);
-            CreateButton(actionRow.transform, "RecordingDelay", "插入延迟", SecondaryButtonWidth, SecondaryButtonColor, OpenDelayModal, out _, true);
-            CreateButton(actionRow.transform, "RecordingConfirm", "确认", SecondaryButtonWidth, PrimaryButtonColor, ConfirmRecordingFromButton, out _, true);
-            CreateButton(actionRow.transform, "RecordingCancel", "取消", SecondaryButtonWidth, SecondaryButtonColor, CancelRecordingFromButton, out _, true);
+            CreateButton(actionRow.transform, "RecordingConfirm", "确认", SecondaryButtonWidth, PrimaryButtonColor, ConfirmRecordingFromButton, out _recordingConfirmButton, out _, true);
+            CreateButton(actionRow.transform, "RecordingCancel", "取消", SecondaryButtonWidth, SecondaryButtonColor, CancelRecordingFromButton, out _recordingCancelButton, out _, true);
 
             modal.SetActive(false);
             return modal;
@@ -776,59 +781,7 @@ namespace HkVoiceMod.UI
 
         private static string BuildRecordingActionValueText(global::GlobalEnums.HeroActionButton actionButton, GameKeybindNameResolver resolver)
         {
-            switch (actionButton)
-            {
-                case global::GlobalEnums.HeroActionButton.LEFT:
-                    return "左移";
-                case global::GlobalEnums.HeroActionButton.RIGHT:
-                    return "右移";
-                case global::GlobalEnums.HeroActionButton.UP:
-                    return "上移";
-                case global::GlobalEnums.HeroActionButton.DOWN:
-                    return "下移";
-                case global::GlobalEnums.HeroActionButton.ATTACK:
-                    return "攻击";
-                case global::GlobalEnums.HeroActionButton.JUMP:
-                    return "跳跃";
-                case global::GlobalEnums.HeroActionButton.DASH:
-                    return "冲刺";
-                case global::GlobalEnums.HeroActionButton.SUPER_DASH:
-                    return "超级冲刺";
-                case global::GlobalEnums.HeroActionButton.CAST:
-                    return "法术";
-                case global::GlobalEnums.HeroActionButton.QUICK_CAST:
-                    return "快速施法";
-                case global::GlobalEnums.HeroActionButton.DREAM_NAIL:
-                    return "梦之钉";
-                case global::GlobalEnums.HeroActionButton.QUICK_MAP:
-                    return "快速地图";
-                case global::GlobalEnums.HeroActionButton.INVENTORY:
-                    return "物品栏";
-                default:
-                    if (resolver.TryGetPlayerAction(actionButton, out var action)
-                        && action != null
-                        && IsRenderableRecordingActionLabel(action.Name))
-                    {
-                        return action.Name.Trim();
-                    }
-
-                    return actionButton.ToString();
-            }
-        }
-
-        private static bool IsRenderableRecordingActionLabel(string value)
-        {
-            if (string.IsNullOrWhiteSpace(value))
-            {
-                return false;
-            }
-
-            var trimmed = value.Trim();
-            var normalized = trimmed.Replace(" ", string.Empty).Replace("_", string.Empty).Replace("-", string.Empty);
-            return !normalized.Equals("UNKNOWN", StringComparison.OrdinalIgnoreCase)
-                && !normalized.Equals("UNKNOWNKEY", StringComparison.OrdinalIgnoreCase)
-                && !normalized.Equals("UNBOUND", StringComparison.OrdinalIgnoreCase)
-                && !normalized.Equals("NONE", StringComparison.OrdinalIgnoreCase);
+            return resolver.GetDisplayName(actionButton);
         }
 
         private void ScheduleRecordingTextProbe()
@@ -1294,16 +1247,6 @@ namespace HkVoiceMod.UI
             RefreshDynamicContent();
         }
 
-        private void OpenDelayModal()
-        {
-            if (_draft == null || _recordingMacro == null || _delayModal == null || _recordingModal == null)
-            {
-                return;
-            }
-
-            SetStatus("事件流模式下不再支持手动追加尾部延迟，请直接编辑现有事件之间的间隔。", true);
-        }
-
         private void ConfirmDelayInput()
         {
             if (_draft == null || _delayMacro == null || _delayInputField == null)
@@ -1466,6 +1409,16 @@ namespace HkVoiceMod.UI
                     _recordingClearButton.interactable = hasSession && !isRecording && !isAwaitingSingleKeyInput && _recordingMacro.KeyEvents.Count > 0;
                 }
 
+                if (_recordingConfirmButton != null)
+                {
+                    _recordingConfirmButton.interactable = hasSession && !isRecording;
+                }
+
+                if (_recordingCancelButton != null)
+                {
+                    _recordingCancelButton.interactable = hasSession && !isRecording;
+                }
+
                 RefreshRecordingStepRows();
 
                 if (_recordingStatusText != null)
@@ -1610,7 +1563,13 @@ namespace HkVoiceMod.UI
         private void ResolveTheme(MenuScreen returnScreen)
         {
             var fallbackFont = ResolveFont();
-            _theme = VoiceSettingsThemeResolver.Resolve(returnScreen, fallbackFont);
+            var resolvedTheme = VoiceSettingsThemeResolver.Resolve(returnScreen, fallbackFont);
+            if (_theme != null && _theme.SectionSprite != null && resolvedTheme.SectionSprite == null)
+            {
+                resolvedTheme = resolvedTheme.WithSectionSprite(_theme.SectionSprite, _theme.SectionSpriteIsSliced);
+            }
+
+            _theme = resolvedTheme;
             _font = _theme.PrimaryFont;
         }
 
@@ -1691,6 +1650,7 @@ namespace HkVoiceMod.UI
             image.sprite = sprite;
             image.type = sprite != null && useSliced ? Image.Type.Sliced : Image.Type.Simple;
             image.color = tint;
+            image.rectTransform.localScale = Vector3.one;
             image.preserveAspect = false;
         }
 
@@ -1810,6 +1770,20 @@ namespace HkVoiceMod.UI
                     null,
                     false,
                     new Color(_theme.FullscreenDimColor.r, _theme.FullscreenDimColor.g, _theme.FullscreenDimColor.b, fallbackColor.a));
+                return;
+            }
+
+            if (string.Equals(name, "TopOrnamentSection", StringComparison.Ordinal)
+                || string.Equals(name, "BottomOrnamentSection", StringComparison.Ordinal))
+            {
+                var ornamentSprite = _ornamentSectionSprite ?? image.sprite ?? _theme.SectionSprite;
+                if (ornamentSprite != null)
+                {
+                    _ornamentSectionSprite = ornamentSprite;
+                }
+
+                ApplyImageTheme(image, ornamentSprite, false, _theme.SectionTint);
+                image.rectTransform.localScale = new Vector3(1f, OrnamentVerticalScale, 1f);
                 return;
             }
 
@@ -2307,11 +2281,15 @@ namespace HkVoiceMod.UI
 
             public VoiceThemeButtonKind Kind { get; set; }
 
+            private VoiceSettingsTheme? _theme;
             private bool _isHovered;
             private bool _isSelected;
+            private bool _lastInteractable;
 
             public void ApplyTheme(VoiceSettingsTheme theme)
             {
+                _theme = theme;
+
                 if (Button != null)
                 {
                     var buttonImage = Button.targetGraphic as Image;
@@ -2327,12 +2305,24 @@ namespace HkVoiceMod.UI
                 if (LabelText != null)
                 {
                     LabelText.font = theme.PrimaryFont;
-                    LabelText.color = theme.TextColor;
                 }
 
                 ApplyOrnamentTheme(LeftArrow, theme, false);
                 ApplyOrnamentTheme(RightArrow, theme, true);
+                _lastInteractable = IsButtonInteractable();
                 _isSelected = EventSystem.current != null && EventSystem.current.currentSelectedGameObject == gameObject;
+                RefreshVisualState();
+            }
+
+            private void Update()
+            {
+                var isInteractable = IsButtonInteractable();
+                if (isInteractable == _lastInteractable)
+                {
+                    return;
+                }
+
+                _lastInteractable = isInteractable;
                 RefreshVisualState();
             }
 
@@ -2390,9 +2380,22 @@ namespace HkVoiceMod.UI
                 image.rectTransform.localScale = new Vector3(flipHorizontally ? -1f : 1f, 1f, 1f);
             }
 
+            private bool IsButtonInteractable()
+            {
+                return Button != null && Button.IsInteractable();
+            }
+
             private void RefreshVisualState()
             {
-                var showOrnaments = Button != null && Button.interactable && (_isHovered || _isSelected);
+                var isInteractable = IsButtonInteractable();
+                _lastInteractable = isInteractable;
+
+                if (LabelText != null && _theme != null)
+                {
+                    LabelText.color = isInteractable ? _theme.TextColor : _theme.PlaceholderTextColor;
+                }
+
+                var showOrnaments = isInteractable && (_isHovered || _isSelected);
                 if (LeftArrow != null)
                 {
                     LeftArrow.enabled = showOrnaments;
