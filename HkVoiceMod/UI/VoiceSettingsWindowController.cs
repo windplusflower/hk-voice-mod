@@ -22,7 +22,7 @@ namespace HkVoiceMod.UI
         private const float ModalWidth = 1040f;
         private const float ModalHeight = 600f;
         private const float DelayModalWidth = 720f;
-        private const float DelayModalHeight = 320f;
+        private const float DelayModalHeight = 340f;
         private const float SectionSpacing = 8f;
         private const float OrnamentSectionHeight = 72f;
         private const float OrnamentVerticalScale = 1.35f;
@@ -38,6 +38,7 @@ namespace HkVoiceMod.UI
         private const float DeleteButtonWidth = 120f;
         private const float MenuTransitionStageDelay = 0.1f;
         private const float DefaultMenuFadeSpeed = 3.2f;
+        private const float BackInputSuppressDuration = 0.25f;
 
         internal static readonly Color FullscreenDimColor = new Color(0.02f, 0.02f, 0.04f, 0.84f);
         internal static readonly Color WindowColor = new Color(0.07f, 0.07f, 0.09f, 0.97f);
@@ -110,6 +111,7 @@ namespace HkVoiceMod.UI
         private string _stopThresholdText = string.Empty;
         private bool _isClosingWindow;
         private bool _hasLoggedRecordingTextProbe;
+        private float _suppressBackInputUntilRealtime;
         private MenuScreen? _hiddenNativeMenuScreen;
         private bool _hiddenNativeMenuWasActive;
 
@@ -146,6 +148,7 @@ namespace HkVoiceMod.UI
             _editingDelayStepIndex = -1;
             _isClosingWindow = false;
             _hasLoggedRecordingTextProbe = false;
+            _suppressBackInputUntilRealtime = Time.unscaledTime + BackInputSuppressDuration;
             CancelPendingReveal();
             CancelPendingTransition();
 
@@ -183,11 +186,23 @@ namespace HkVoiceMod.UI
 
         internal bool TryHandleMenuCancel()
         {
+            if (_pendingRevealCoroutine != null || _pendingTransitionCoroutine != null || _isClosingWindow)
+            {
+                SuppressBackInput();
+                return true;
+            }
+
+            if (IsBackInputSuppressed())
+            {
+                return true;
+            }
+
             if (!IsVisible())
             {
                 return false;
             }
 
+            SuppressBackInput();
             RequestBack();
             return true;
         }
@@ -203,6 +218,11 @@ namespace HkVoiceMod.UI
 
             if (_delayModal != null && _delayModal.activeInHierarchy)
             {
+                if (IsBackInputSuppressed())
+                {
+                    return;
+                }
+
                 if (_delayModalBlockedFrame == Time.frameCount)
                 {
                     return;
@@ -210,10 +230,12 @@ namespace HkVoiceMod.UI
 
                 if (UnityEngine.Input.GetKeyDown(KeyCode.Return) || UnityEngine.Input.GetKeyDown(KeyCode.KeypadEnter))
                 {
+                    SuppressBackInput();
                     ConfirmDelayInput();
                 }
                 else if (UnityEngine.Input.GetKeyDown(KeyCode.Escape))
                 {
+                    SuppressBackInput();
                     CancelDelayInput();
                 }
 
@@ -225,8 +247,14 @@ namespace HkVoiceMod.UI
                 return;
             }
 
+            if (IsBackInputSuppressed())
+            {
+                return;
+            }
+
             if (UnityEngine.Input.GetKeyDown(KeyCode.Escape))
             {
+                SuppressBackInput();
                 RequestBack();
             }
         }
@@ -486,7 +514,7 @@ namespace HkVoiceMod.UI
             var delayHintText = CreateText(modal.transform, "DelayHint", "输入毫秒数，确认后会插入到当前录制里。", 22, MutedTextColor, FontStyle.Normal, TextAnchor.UpperLeft, TextAnchor.MiddleLeft, -1f);
             ConfigureWrappedAutoHeightText(delayHintText, 46f);
 
-            _delayInputField = CreateLabeledInput(modal.transform, "DelayInput", "延迟（毫秒）", 280f, InputField.ContentType.IntegerNumber, value =>
+            _delayInputField = CreateLabeledInput(modal.transform, "DelayInput", "延迟（毫秒）", 320f, InputField.ContentType.IntegerNumber, value =>
             {
                 if (_draft == null || _delayMacro == null)
                 {
@@ -507,7 +535,7 @@ namespace HkVoiceMod.UI
                 }
 
                 _draft.SetPendingDelayMilliseconds(_delayMacro.Id, 0);
-            });
+            }, 220f, false);
 
             _delayHintText = CreateText(modal.transform, "DelayPreview", string.Empty, 22, TextColor, FontStyle.Normal, TextAnchor.UpperLeft, TextAnchor.MiddleLeft, -1f);
             ConfigureWrappedAutoHeightText(_delayHintText, 30f);
@@ -515,8 +543,8 @@ namespace HkVoiceMod.UI
             var actionRow = CreateHorizontalGroup(modal.transform, "DelayActions", 16f, 60f, new RectOffset(0, 0, 4, 0));
             actionRow.GetComponent<HorizontalLayoutGroup>().childAlignment = TextAnchor.MiddleRight;
             CreateSpacer(actionRow.transform, "DelayActionSpacer", 1f);
-            CreateButton(actionRow.transform, "DelayConfirm", "确认", SecondaryButtonWidth, PrimaryButtonColor, ConfirmDelayInput, out _);
-            CreateButton(actionRow.transform, "DelayCancel", "取消", SecondaryButtonWidth, SecondaryButtonColor, CancelDelayInput, out _);
+            CreateButton(actionRow.transform, "DelayConfirm", "确认", SecondaryButtonWidth, PrimaryButtonColor, ConfirmDelayInput, out _, true);
+            CreateButton(actionRow.transform, "DelayCancel", "取消", SecondaryButtonWidth, SecondaryButtonColor, CancelDelayInput, out _, true);
 
             modal.SetActive(false);
             return modal;
@@ -1381,11 +1409,7 @@ namespace HkVoiceMod.UI
                 return;
             }
 
-            if (animated && UIManager.instance != null)
-            {
-                StartCoroutine(UIManager.instance.ShowMenu(hiddenNativeMenuScreen));
-                return;
-            }
+            SuppressBackInput();
 
             var hiddenNativeMenuObject = hiddenNativeMenuScreen.gameObject;
             if (hiddenNativeMenuObject != null)
@@ -1462,9 +1486,7 @@ namespace HkVoiceMod.UI
             if (_draft != null && _delayMacro != null && _delayHintText != null)
             {
                 var pendingMilliseconds = _draft.GetPendingDelayMilliseconds(_delayMacro.Id);
-                _delayHintText.text = _editingDelayStepIndex >= 0
-                    ? $"当前将修改为：{pendingMilliseconds} 毫秒"
-                    : $"当前将插入：{pendingMilliseconds} 毫秒";
+                _delayHintText.text = $"{pendingMilliseconds} 毫秒";
             }
         }
 
@@ -1771,21 +1793,13 @@ namespace HkVoiceMod.UI
                 return;
             }
 
-            var uiManager = UIManager.instance;
-            if (uiManager == null)
+            SuppressBackInput();
+            var hiddenNativeMenuObject = hiddenNativeMenuScreen.gameObject;
+            if (hiddenNativeMenuObject != null)
             {
-                hiddenNativeMenuScreen.gameObject.SetActive(false);
-                BeginRevealAfterLayoutSettles();
-                return;
+                hiddenNativeMenuObject.SetActive(false);
             }
 
-            _pendingTransitionCoroutine = StartCoroutine(HideNativeMenuAndReveal(hiddenNativeMenuScreen, uiManager));
-        }
-
-        private IEnumerator HideNativeMenuAndReveal(MenuScreen menuScreen, UIManager uiManager)
-        {
-            yield return StartCoroutine(uiManager.HideMenu(menuScreen));
-            _pendingTransitionCoroutine = null;
             BeginRevealAfterLayoutSettles();
         }
 
@@ -2049,6 +2063,16 @@ namespace HkVoiceMod.UI
             EventSystem.current.SetSelectedGameObject(target);
         }
 
+        private bool IsBackInputSuppressed()
+        {
+            return Time.unscaledTime < _suppressBackInputUntilRealtime;
+        }
+
+        private void SuppressBackInput(float duration = BackInputSuppressDuration)
+        {
+            _suppressBackInputUntilRealtime = Math.Max(_suppressBackInputUntilRealtime, Time.unscaledTime + Math.Max(0f, duration));
+        }
+
         private void FocusInputField(InputField? inputField)
         {
             if (inputField == null)
@@ -2245,6 +2269,9 @@ namespace HkVoiceMod.UI
 
             inputField.transition = Selectable.Transition.ColorTint;
             inputField.colors = _theme.CreateInputColors();
+            inputField.customCaretColor = true;
+            inputField.caretColor = _theme.TextColor;
+            inputField.selectionColor = new Color(_theme.TextColor.r, _theme.TextColor.g, _theme.TextColor.b, 0.18f);
             if (inputField.textComponent != null)
             {
                 inputField.textComponent.font = _theme.PrimaryFont;
@@ -2481,10 +2508,16 @@ namespace HkVoiceMod.UI
             return scrollRoot;
         }
 
-        private InputField CreateLabeledInput(Transform parent, string name, string labelText, float width, InputField.ContentType contentType, Action<string> onValueChanged)
+        private InputField CreateLabeledInput(Transform parent, string name, string labelText, float width, InputField.ContentType contentType, Action<string> onValueChanged, float labelWidth = 136f, bool wrapLabel = true)
         {
             var group = CreateHorizontalGroup(parent, $"{name}Group", 10f, FieldHeight);
-            CreateText(group.transform, $"{name}Label", labelText, 22, TextColor, FontStyle.Bold, TextAnchor.MiddleLeft, TextAnchor.MiddleLeft, FieldHeight, false, 136f);
+            var label = CreateText(group.transform, $"{name}Label", labelText, 22, TextColor, FontStyle.Bold, TextAnchor.MiddleLeft, TextAnchor.MiddleLeft, FieldHeight, false, labelWidth);
+            if (!wrapLabel)
+            {
+                label.horizontalOverflow = HorizontalWrapMode.Overflow;
+                label.verticalOverflow = VerticalWrapMode.Truncate;
+            }
+
             CreateInput(group.transform, name, labelText, width, contentType, onValueChanged, out var inputField);
             return inputField;
         }
