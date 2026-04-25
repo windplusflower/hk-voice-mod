@@ -36,6 +36,8 @@ namespace HkVoiceMod.UI
         private const float SecondaryButtonWidth = 140f;
         private const float DiscardButtonWidth = 220f;
         private const float DeleteButtonWidth = 120f;
+        private const float MenuTransitionStageDelay = 0.1f;
+        private const float DefaultMenuFadeSpeed = 3.2f;
 
         internal static readonly Color FullscreenDimColor = new Color(0.02f, 0.02f, 0.04f, 0.84f);
         internal static readonly Color WindowColor = new Color(0.07f, 0.07f, 0.09f, 0.97f);
@@ -65,11 +67,24 @@ namespace HkVoiceMod.UI
         private CanvasGroup? _canvasGroup;
         private CanvasGroup? _windowCanvasGroup;
         private Coroutine? _pendingRevealCoroutine;
+        private Coroutine? _pendingTransitionCoroutine;
         private Sprite? _ornamentSectionSprite;
+        private CanvasGroup? _windowTopOrnamentCanvasGroup;
+        private CanvasGroup? _windowHeaderCanvasGroup;
+        private CanvasGroup? _windowStopContentCanvasGroup;
+        private CanvasGroup? _windowMacroCanvasGroup;
+        private CanvasGroup? _windowFooterCanvasGroup;
+        private CanvasGroup? _windowBottomOrnamentCanvasGroup;
         private RectTransform? _macroListContent;
         private GameObject? _modalHost;
         private GameObject? _recordingModal;
         private GameObject? _delayModal;
+        private CanvasGroup? _recordingModalCanvasGroup;
+        private CanvasGroup? _recordingModalTitleCanvasGroup;
+        private CanvasGroup? _recordingModalHintCanvasGroup;
+        private CanvasGroup? _recordingModalPreviewCanvasGroup;
+        private CanvasGroup? _recordingModalStatusCanvasGroup;
+        private CanvasGroup? _recordingModalActionsCanvasGroup;
         private RectTransform? _recordingStepListContent;
         private Text? _statusText;
         private InputField? _stopWakeWordInput;
@@ -120,7 +135,7 @@ namespace HkVoiceMod.UI
             _ = returnScreen ?? throw new ArgumentNullException(nameof(returnScreen));
             ResolveTheme(returnScreen);
             VoiceMacroCaptureService.Instance.Resolver.PrimeKeyboardMenuLabelCache();
-            HideNativeMenu(returnScreen);
+            RememberNativeMenu(returnScreen);
             _draft = VoiceSettingsDraft.FromAppliedSettings(_mod.Settings);
             _stopThresholdText = FormatThresholdText(_draft.PendingStopKeywordConfig.KeywordThreshold);
             _recordingMacro = null;
@@ -132,8 +147,10 @@ namespace HkVoiceMod.UI
             _isClosingWindow = false;
             _hasLoggedRecordingTextProbe = false;
             CancelPendingReveal();
+            CancelPendingTransition();
 
             EnsureBuilt();
+            ResetWindowTransitionState();
             SetWindowPageVisible(true);
             ApplyThemeToExistingTree();
             EnsureEventSystem();
@@ -151,12 +168,12 @@ namespace HkVoiceMod.UI
             HideModalHostIfIdle();
             RebuildFromDraft();
             SetStatus("打开录制页后默认不会立即采集；点击“开始录制”后才会追加按下/松开事件。", false);
-            BeginRevealAfterLayoutSettles();
+            BeginHideNativeMenuAndReveal();
         }
 
         internal void OpenFromMenu(HkVoiceMod mod, MenuScreen returnScreen)
         {
-            if (IsVisible() || _pendingRevealCoroutine != null)
+            if (IsVisible() || _pendingRevealCoroutine != null || _pendingTransitionCoroutine != null)
             {
                 return;
             }
@@ -184,7 +201,7 @@ namespace HkVoiceMod.UI
 
             RefreshDynamicContent();
 
-            if (_delayModal != null && _delayModal.activeSelf)
+            if (_delayModal != null && _delayModal.activeInHierarchy)
             {
                 if (_delayModalBlockedFrame == Time.frameCount)
                 {
@@ -203,12 +220,12 @@ namespace HkVoiceMod.UI
                 return;
             }
 
-            if (_recordingModal != null && _recordingModal.activeSelf)
+            if (_recordingModal != null && _recordingModal.activeInHierarchy)
             {
                 return;
             }
 
-            if (UnityEngine.Input.GetKeyDown(KeyCode.Escape) && !IsEditingTextInput())
+            if (UnityEngine.Input.GetKeyDown(KeyCode.Escape))
             {
                 RequestBack();
             }
@@ -217,7 +234,8 @@ namespace HkVoiceMod.UI
         private void OnDestroy()
         {
             CancelPendingReveal();
-            RestoreNativeMenu();
+            CancelPendingTransition();
+            RestoreNativeMenu(false);
 
             if (_instance == this)
             {
@@ -269,8 +287,10 @@ namespace HkVoiceMod.UI
             windowLayout.childForceExpandHeight = false;
             windowLayout.childForceExpandWidth = true;
 
-            CreateSection(window.transform, "TopOrnamentSection", OrnamentSectionHeight);
+            var topOrnamentSection = CreateSection(window.transform, "TopOrnamentSection", OrnamentSectionHeight);
+            _windowTopOrnamentCanvasGroup = AddVisualCanvasGroup(topOrnamentSection);
             var header = CreatePanel(window.transform, "HeaderContent", WindowColor);
+            _windowHeaderCanvasGroup = AddVisualCanvasGroup(header);
             AddLayoutElement(header, -1f, 128f, 0f);
             var headerLayout = header.AddComponent<VerticalLayoutGroup>();
             headerLayout.padding = new RectOffset(16, 16, 10, 10);
@@ -287,6 +307,7 @@ namespace HkVoiceMod.UI
             AddLayoutElement(CreatePanel(window.transform, "StopDividerLine", new Color(0.78f, 0.72f, 0.58f, 0.30f)), -1f, 2f, 0f);
 
             var stopSection = CreatePanel(window.transform, "StopContent", WindowColor);
+            _windowStopContentCanvasGroup = AddVisualCanvasGroup(stopSection);
             AddLayoutElement(stopSection, -1f, 112f, 0f);
             var stopLayout = stopSection.AddComponent<VerticalLayoutGroup>();
             stopLayout.padding = new RectOffset(16, 16, 10, 10);
@@ -341,6 +362,7 @@ namespace HkVoiceMod.UI
             }, out _stopThresholdInput);
 
             var macroSection = CreateSection(window.transform, "MacroSection", -1f, true);
+            _windowMacroCanvasGroup = AddVisualCanvasGroup(macroSection);
             var macroLayout = macroSection.AddComponent<VerticalLayoutGroup>();
             macroLayout.padding = new RectOffset(16, 16, 12, 12);
             macroLayout.spacing = 8f;
@@ -357,6 +379,7 @@ namespace HkVoiceMod.UI
             AddLayoutElement(macroScroll, -1f, -1f, 1f);
 
             var footer = CreatePanel(window.transform, "FooterContent", WindowColor);
+            _windowFooterCanvasGroup = AddVisualCanvasGroup(footer);
             AddLayoutElement(footer, -1f, 74f, 0f);
             var footerLayout = CreateHorizontalLayout(footer.transform, 10f, new RectOffset(12, 12, 12, 12));
             footerLayout.childAlignment = TextAnchor.MiddleRight;
@@ -367,7 +390,8 @@ namespace HkVoiceMod.UI
             CreateButton(footer.transform, "DiscardButton", "放弃更改", DiscardButtonWidth, DangerButtonColor, DiscardAndClose, out _, true);
             CreateButton(footer.transform, "BackButton", "返回", PrimaryButtonWidth, SecondaryButtonColor, RequestBack, out _, true);
 
-            CreateSection(window.transform, "BottomOrnamentSection", OrnamentSectionHeight);
+            var bottomOrnamentSection = CreateSection(window.transform, "BottomOrnamentSection", OrnamentSectionHeight);
+            _windowBottomOrnamentCanvasGroup = AddVisualCanvasGroup(bottomOrnamentSection);
 
             _modalHost = CreatePanel(root.transform, "ModalHost", new Color(0f, 0f, 0f, 0.55f));
             StretchToParent(_modalHost);
@@ -382,6 +406,7 @@ namespace HkVoiceMod.UI
         private GameObject BuildRecordingModal(Transform parent)
         {
             var modal = CreatePanel(parent, "RecordingModal", ModalColor);
+            _recordingModalCanvasGroup = modal.AddComponent<CanvasGroup>();
             var modalRect = modal.GetComponent<RectTransform>();
             modalRect.anchorMin = new Vector2(0.5f, 0.5f);
             modalRect.anchorMax = new Vector2(0.5f, 0.5f);
@@ -398,10 +423,13 @@ namespace HkVoiceMod.UI
             modalLayout.childForceExpandHeight = false;
 
             _recordingTitleText = CreateText(modal.transform, "RecordingTitle", "录制宏", 34, TextColor, FontStyle.Bold, TextAnchor.MiddleLeft, TextAnchor.MiddleLeft, 44f);
+            _recordingModalTitleCanvasGroup = AddVisualCanvasGroup(_recordingTitleText.gameObject);
             _recordingHintText = CreateText(modal.transform, "RecordingHint", "进入录制页后请先点击“开始录制”；停止录制时可使用 Backspace / Enter / Esc。", 24, MutedTextColor, FontStyle.Normal, TextAnchor.UpperLeft, TextAnchor.MiddleLeft, -1f);
+            _recordingModalHintCanvasGroup = AddVisualCanvasGroup(_recordingHintText.gameObject);
             ConfigureWrappedAutoHeightText(_recordingHintText, 34f);
 
             var previewPanel = CreatePanel(modal.transform, "RecordingPreviewPanel", SectionColor);
+            _recordingModalPreviewCanvasGroup = AddVisualCanvasGroup(previewPanel);
             AddLayoutElement(previewPanel, -1f, 220f, 1f);
             var previewLayout = previewPanel.AddComponent<VerticalLayoutGroup>();
             previewLayout.padding = new RectOffset(16, 16, 16, 16);
@@ -419,9 +447,11 @@ namespace HkVoiceMod.UI
             ConfigureWrappedAutoHeightText(_recordingEmptyText, 36f);
 
             _recordingStatusText = CreateText(modal.transform, "RecordingStatus", string.Empty, 24, MutedTextColor, FontStyle.Normal, TextAnchor.UpperLeft, TextAnchor.MiddleLeft, -1f);
+            _recordingModalStatusCanvasGroup = AddVisualCanvasGroup(_recordingStatusText.gameObject);
             ConfigureWrappedAutoHeightText(_recordingStatusText, 60f);
 
             var actionRow = CreateHorizontalGroup(modal.transform, "RecordingActions", 16f, 60f, new RectOffset(0, 0, 4, 0));
+            _recordingModalActionsCanvasGroup = AddVisualCanvasGroup(actionRow);
             actionRow.GetComponent<HorizontalLayoutGroup>().childAlignment = TextAnchor.MiddleRight;
             CreateSpacer(actionRow.transform, "RecordingActionSpacer", 1f);
             CreateButton(actionRow.transform, "RecordingStart", "开始录制", SecondaryButtonWidth, PrimaryButtonColor, StartRecordingFromButton, out _recordingStartButton, out _, true);
@@ -1084,13 +1114,13 @@ namespace HkVoiceMod.UI
                 return;
             }
 
-            if (_delayModal != null && _delayModal.activeSelf)
+            if (_delayModal != null && _delayModal.activeInHierarchy)
             {
                 CancelDelayInput();
                 return;
             }
 
-            if (_recordingModal != null && _recordingModal.activeSelf)
+            if (_recordingModal != null && _recordingModal.activeInHierarchy)
             {
                 CancelRecordingFromButton();
                 return;
@@ -1129,6 +1159,7 @@ namespace HkVoiceMod.UI
                 return;
             }
 
+            CancelPendingTransition();
             VoiceMacroCaptureService.Instance.StopCapture();
             _recordingMacro = macro;
             _recordingStartSnapshot = _draft.CloneMacroKeyEvents(macro.Id);
@@ -1137,6 +1168,7 @@ namespace HkVoiceMod.UI
             _hasLoggedRecordingTextProbe = false;
             _recordingTitleText.text = $"录制宏：{VoiceSettingsMenuBuilder.GetMacroDisplayName(macro)}";
 
+            PrepareRecordingModalRevealTransitionState();
             _modalHost.SetActive(true);
             _recordingModal.SetActive(true);
             if (_delayModal != null)
@@ -1166,6 +1198,7 @@ namespace HkVoiceMod.UI
                 () => CloseRecordingModal(true, true));
 
             RefreshDynamicContent();
+            _pendingTransitionCoroutine = StartCoroutine(OpenRecordingModalWithTransition());
         }
 
         private void StartRecordingFromButton()
@@ -1219,6 +1252,11 @@ namespace HkVoiceMod.UI
 
         private void CloseRecordingModal(bool applyChanges, bool stopCapture)
         {
+            if (_pendingTransitionCoroutine != null)
+            {
+                return;
+            }
+
             if (_draft != null && _recordingMacro != null && !applyChanges && _recordingStartSnapshot != null)
             {
                 _draft.ReplaceMacroKeyEvents(_recordingMacro.Id, _recordingStartSnapshot);
@@ -1235,19 +1273,7 @@ namespace HkVoiceMod.UI
             _editingDelayStepIndex = -1;
             _hasLoggedRecordingTextProbe = false;
 
-            if (_delayModal != null)
-            {
-                _delayModal.SetActive(false);
-            }
-
-            if (_recordingModal != null)
-            {
-                _recordingModal.SetActive(false);
-            }
-
-            SetWindowPageVisible(true);
-            HideModalHostIfIdle();
-            RefreshDynamicContent();
+            _pendingTransitionCoroutine = StartCoroutine(CloseRecordingModalWithTransition());
         }
 
         private void ConfirmDelayInput()
@@ -1312,6 +1338,7 @@ namespace HkVoiceMod.UI
 
             _isClosingWindow = true;
             CancelPendingReveal();
+            CancelPendingTransition();
             VoiceMacroCaptureService.Instance.StopCapture();
             _recordingMacro = null;
             _delayMacro = null;
@@ -1331,25 +1358,18 @@ namespace HkVoiceMod.UI
             }
 
             HideModalHostIfIdle();
-            SetVisible(false);
-            SetWindowPageVisible(true);
-            RestoreNativeMenu();
-            SelectGameObject(null);
+            _pendingTransitionCoroutine = StartCoroutine(CloseWindowWithTransition());
         }
 
-        private void HideNativeMenu(MenuScreen returnScreen)
+        private void RememberNativeMenu(MenuScreen returnScreen)
         {
-            RestoreNativeMenu();
+            RestoreNativeMenu(false);
 
             _hiddenNativeMenuScreen = returnScreen;
             _hiddenNativeMenuWasActive = returnScreen.gameObject.activeSelf;
-            if (_hiddenNativeMenuWasActive)
-            {
-                returnScreen.gameObject.SetActive(false);
-            }
         }
 
-        private void RestoreNativeMenu()
+        private void RestoreNativeMenu(bool animated)
         {
             var hiddenNativeMenuScreen = _hiddenNativeMenuScreen;
             var hiddenNativeMenuWasActive = _hiddenNativeMenuWasActive;
@@ -1358,6 +1378,12 @@ namespace HkVoiceMod.UI
 
             if (!hiddenNativeMenuWasActive || hiddenNativeMenuScreen == null)
             {
+                return;
+            }
+
+            if (animated && UIManager.instance != null)
+            {
+                StartCoroutine(UIManager.instance.ShowMenu(hiddenNativeMenuScreen));
                 return;
             }
 
@@ -1474,6 +1500,185 @@ namespace HkVoiceMod.UI
             _canvasGroup.interactable = visible;
         }
 
+        private static CanvasGroup AddVisualCanvasGroup(GameObject gameObject)
+        {
+            var canvasGroup = gameObject.GetComponent<CanvasGroup>();
+            if (canvasGroup == null)
+            {
+                canvasGroup = gameObject.AddComponent<CanvasGroup>();
+            }
+
+            canvasGroup.alpha = 1f;
+            canvasGroup.interactable = true;
+            canvasGroup.blocksRaycasts = true;
+            return canvasGroup;
+        }
+
+        private static void ResetVisualCanvasGroup(CanvasGroup? canvasGroup)
+        {
+            if (canvasGroup == null)
+            {
+                return;
+            }
+
+            canvasGroup.gameObject.SetActive(true);
+            canvasGroup.alpha = 1f;
+            canvasGroup.interactable = true;
+            canvasGroup.blocksRaycasts = true;
+        }
+
+        private static void PrepareVisualCanvasGroupForReveal(CanvasGroup? canvasGroup)
+        {
+            if (canvasGroup == null)
+            {
+                return;
+            }
+
+            canvasGroup.gameObject.SetActive(true);
+            canvasGroup.alpha = 0f;
+            canvasGroup.interactable = false;
+            canvasGroup.blocksRaycasts = false;
+        }
+
+        private void ResetWindowTransitionState()
+        {
+            ResetVisualCanvasGroup(_windowTopOrnamentCanvasGroup);
+            ResetVisualCanvasGroup(_windowHeaderCanvasGroup);
+            ResetVisualCanvasGroup(_windowStopContentCanvasGroup);
+            ResetVisualCanvasGroup(_windowMacroCanvasGroup);
+            ResetVisualCanvasGroup(_windowFooterCanvasGroup);
+            ResetVisualCanvasGroup(_windowBottomOrnamentCanvasGroup);
+
+            if (_windowCanvasGroup != null)
+            {
+                _windowCanvasGroup.gameObject.SetActive(true);
+                _windowCanvasGroup.alpha = 1f;
+                _windowCanvasGroup.interactable = true;
+                _windowCanvasGroup.blocksRaycasts = true;
+            }
+        }
+
+        private void PrepareWindowRevealTransitionState()
+        {
+            PrepareVisualCanvasGroupForReveal(_windowTopOrnamentCanvasGroup);
+            PrepareVisualCanvasGroupForReveal(_windowHeaderCanvasGroup);
+            PrepareVisualCanvasGroupForReveal(_windowStopContentCanvasGroup);
+            PrepareVisualCanvasGroupForReveal(_windowMacroCanvasGroup);
+            PrepareVisualCanvasGroupForReveal(_windowFooterCanvasGroup);
+            PrepareVisualCanvasGroupForReveal(_windowBottomOrnamentCanvasGroup);
+
+            if (_windowCanvasGroup != null)
+            {
+                _windowCanvasGroup.gameObject.SetActive(true);
+                _windowCanvasGroup.alpha = 0f;
+                _windowCanvasGroup.interactable = false;
+                _windowCanvasGroup.blocksRaycasts = false;
+            }
+        }
+
+        private void ResetRecordingModalTransitionState()
+        {
+            ResetVisualCanvasGroup(_recordingModalTitleCanvasGroup);
+            ResetVisualCanvasGroup(_recordingModalHintCanvasGroup);
+            ResetVisualCanvasGroup(_recordingModalPreviewCanvasGroup);
+            ResetVisualCanvasGroup(_recordingModalStatusCanvasGroup);
+            ResetVisualCanvasGroup(_recordingModalActionsCanvasGroup);
+
+            if (_recordingModalCanvasGroup != null)
+            {
+                _recordingModalCanvasGroup.gameObject.SetActive(true);
+                _recordingModalCanvasGroup.alpha = 1f;
+                _recordingModalCanvasGroup.interactable = true;
+                _recordingModalCanvasGroup.blocksRaycasts = true;
+            }
+        }
+
+        private void PrepareRecordingModalRevealTransitionState()
+        {
+            PrepareVisualCanvasGroupForReveal(_recordingModalTitleCanvasGroup);
+            PrepareVisualCanvasGroupForReveal(_recordingModalHintCanvasGroup);
+            PrepareVisualCanvasGroupForReveal(_recordingModalPreviewCanvasGroup);
+            PrepareVisualCanvasGroupForReveal(_recordingModalStatusCanvasGroup);
+            PrepareVisualCanvasGroupForReveal(_recordingModalActionsCanvasGroup);
+
+            if (_recordingModalCanvasGroup != null)
+            {
+                _recordingModalCanvasGroup.gameObject.SetActive(true);
+                _recordingModalCanvasGroup.alpha = 0f;
+                _recordingModalCanvasGroup.interactable = false;
+                _recordingModalCanvasGroup.blocksRaycasts = false;
+            }
+        }
+
+        private float GetMenuFadeSpeed()
+        {
+            return UIManager.instance != null ? UIManager.instance.MENU_FADE_SPEED : DefaultMenuFadeSpeed;
+        }
+
+        private IEnumerator FadeInCanvasGroup(CanvasGroup? canvasGroup)
+        {
+            if (canvasGroup == null)
+            {
+                yield break;
+            }
+
+            var fadeSpeed = GetMenuFadeSpeed();
+            var loopFailsafe = 0f;
+            canvasGroup.gameObject.SetActive(true);
+            canvasGroup.interactable = false;
+            canvasGroup.blocksRaycasts = false;
+            while (canvasGroup.alpha < 0.95f)
+            {
+                canvasGroup.alpha += Time.unscaledDeltaTime * fadeSpeed;
+                loopFailsafe += Time.unscaledDeltaTime;
+                if (canvasGroup.alpha >= 0.95f || loopFailsafe >= 2f)
+                {
+                    break;
+                }
+
+                yield return null;
+            }
+
+            canvasGroup.alpha = 1f;
+            canvasGroup.interactable = true;
+            canvasGroup.blocksRaycasts = true;
+        }
+
+        private IEnumerator FadeOutCanvasGroup(CanvasGroup? canvasGroup, bool deactivateAtEnd = false)
+        {
+            if (canvasGroup == null)
+            {
+                yield break;
+            }
+
+            var fadeSpeed = GetMenuFadeSpeed();
+            var loopFailsafe = 0f;
+            canvasGroup.interactable = false;
+            canvasGroup.blocksRaycasts = false;
+            while (canvasGroup.alpha > 0.05f)
+            {
+                canvasGroup.alpha -= Time.unscaledDeltaTime * fadeSpeed;
+                loopFailsafe += Time.unscaledDeltaTime;
+                if (canvasGroup.alpha <= 0.05f || loopFailsafe >= 2f)
+                {
+                    break;
+                }
+
+                yield return null;
+            }
+
+            canvasGroup.alpha = 0f;
+            if (deactivateAtEnd)
+            {
+                canvasGroup.gameObject.SetActive(false);
+            }
+        }
+
+        private static IEnumerator WaitMenuTransitionStage()
+        {
+            yield return new WaitForSecondsRealtime(MenuTransitionStageDelay);
+        }
+
         private void BeginRevealAfterLayoutSettles()
         {
             CancelPendingReveal();
@@ -1497,15 +1702,19 @@ namespace HkVoiceMod.UI
                 yield return new WaitForEndOfFrame();
             }
 
+            ForceRefreshWindowLayout();
+            PrepareWindowRevealTransitionState();
+            SetVisible(true);
+            yield return StartCoroutine(ShowWindowWithMenuEffect());
             _pendingRevealCoroutine = null;
-            FinalizeReveal();
+            SelectGameObject(null);
         }
 
         private void FinalizeReveal()
         {
             ForceRefreshWindowLayout();
             SetVisible(true);
-            FocusInputField(_stopWakeWordInput);
+            SelectGameObject(null);
         }
 
         private void ForceRefreshWindowLayout()
@@ -1540,6 +1749,244 @@ namespace HkVoiceMod.UI
             _pendingRevealCoroutine = null;
         }
 
+        private void CancelPendingTransition()
+        {
+            if (_pendingTransitionCoroutine == null)
+            {
+                return;
+            }
+
+            StopCoroutine(_pendingTransitionCoroutine);
+            _pendingTransitionCoroutine = null;
+        }
+
+        private void BeginHideNativeMenuAndReveal()
+        {
+            CancelPendingTransition();
+
+            var hiddenNativeMenuScreen = _hiddenNativeMenuScreen;
+            if (!_hiddenNativeMenuWasActive || hiddenNativeMenuScreen == null)
+            {
+                BeginRevealAfterLayoutSettles();
+                return;
+            }
+
+            var uiManager = UIManager.instance;
+            if (uiManager == null)
+            {
+                hiddenNativeMenuScreen.gameObject.SetActive(false);
+                BeginRevealAfterLayoutSettles();
+                return;
+            }
+
+            _pendingTransitionCoroutine = StartCoroutine(HideNativeMenuAndReveal(hiddenNativeMenuScreen, uiManager));
+        }
+
+        private IEnumerator HideNativeMenuAndReveal(MenuScreen menuScreen, UIManager uiManager)
+        {
+            yield return StartCoroutine(uiManager.HideMenu(menuScreen));
+            _pendingTransitionCoroutine = null;
+            BeginRevealAfterLayoutSettles();
+        }
+
+        private IEnumerator ShowWindowWithMenuEffect()
+        {
+            if (_windowCanvasGroup != null)
+            {
+                StartCoroutine(FadeInCanvasGroup(_windowCanvasGroup));
+            }
+
+            if (_windowHeaderCanvasGroup != null)
+            {
+                StartCoroutine(FadeInCanvasGroup(_windowHeaderCanvasGroup));
+            }
+
+            yield return StartCoroutine(WaitMenuTransitionStage());
+
+            if (_windowTopOrnamentCanvasGroup != null)
+            {
+                StartCoroutine(FadeInCanvasGroup(_windowTopOrnamentCanvasGroup));
+            }
+
+            yield return StartCoroutine(WaitMenuTransitionStage());
+
+            if (_windowStopContentCanvasGroup != null)
+            {
+                StartCoroutine(FadeInCanvasGroup(_windowStopContentCanvasGroup));
+            }
+
+            if (_windowMacroCanvasGroup != null)
+            {
+                StartCoroutine(FadeInCanvasGroup(_windowMacroCanvasGroup));
+            }
+
+            if (_windowFooterCanvasGroup != null)
+            {
+                StartCoroutine(FadeInCanvasGroup(_windowFooterCanvasGroup));
+            }
+
+            if (_windowBottomOrnamentCanvasGroup != null)
+            {
+                StartCoroutine(FadeInCanvasGroup(_windowBottomOrnamentCanvasGroup));
+            }
+
+            yield return StartCoroutine(WaitMenuTransitionStage());
+        }
+
+        private IEnumerator ShowRecordingModalWithMenuEffect()
+        {
+            if (_recordingModalCanvasGroup != null)
+            {
+                StartCoroutine(FadeInCanvasGroup(_recordingModalCanvasGroup));
+            }
+
+            if (_recordingModalTitleCanvasGroup != null)
+            {
+                StartCoroutine(FadeInCanvasGroup(_recordingModalTitleCanvasGroup));
+            }
+
+            yield return StartCoroutine(WaitMenuTransitionStage());
+
+            if (_recordingModalHintCanvasGroup != null)
+            {
+                StartCoroutine(FadeInCanvasGroup(_recordingModalHintCanvasGroup));
+            }
+
+            if (_recordingModalPreviewCanvasGroup != null)
+            {
+                StartCoroutine(FadeInCanvasGroup(_recordingModalPreviewCanvasGroup));
+            }
+
+            if (_recordingModalStatusCanvasGroup != null)
+            {
+                StartCoroutine(FadeInCanvasGroup(_recordingModalStatusCanvasGroup));
+            }
+
+            yield return StartCoroutine(WaitMenuTransitionStage());
+
+            if (_recordingModalActionsCanvasGroup != null)
+            {
+                StartCoroutine(FadeInCanvasGroup(_recordingModalActionsCanvasGroup));
+            }
+
+            yield return StartCoroutine(WaitMenuTransitionStage());
+        }
+
+        private IEnumerator HideWindowWithMenuEffect()
+        {
+            if (_windowHeaderCanvasGroup != null)
+            {
+                StartCoroutine(FadeOutCanvasGroup(_windowHeaderCanvasGroup));
+            }
+
+            yield return StartCoroutine(WaitMenuTransitionStage());
+
+            if (_windowTopOrnamentCanvasGroup != null)
+            {
+                StartCoroutine(FadeOutCanvasGroup(_windowTopOrnamentCanvasGroup));
+            }
+
+            yield return StartCoroutine(WaitMenuTransitionStage());
+
+            if (_windowStopContentCanvasGroup != null)
+            {
+                StartCoroutine(FadeOutCanvasGroup(_windowStopContentCanvasGroup));
+            }
+
+            if (_windowMacroCanvasGroup != null)
+            {
+                StartCoroutine(FadeOutCanvasGroup(_windowMacroCanvasGroup));
+            }
+
+            if (_windowFooterCanvasGroup != null)
+            {
+                StartCoroutine(FadeOutCanvasGroup(_windowFooterCanvasGroup));
+            }
+
+            yield return StartCoroutine(WaitMenuTransitionStage());
+
+            if (_windowBottomOrnamentCanvasGroup != null)
+            {
+                StartCoroutine(FadeOutCanvasGroup(_windowBottomOrnamentCanvasGroup));
+            }
+
+            yield return StartCoroutine(FadeOutCanvasGroup(_windowCanvasGroup));
+        }
+
+        private IEnumerator HideRecordingModalWithMenuEffect()
+        {
+            if (_recordingModalTitleCanvasGroup != null)
+            {
+                StartCoroutine(FadeOutCanvasGroup(_recordingModalTitleCanvasGroup));
+            }
+
+            yield return StartCoroutine(WaitMenuTransitionStage());
+
+            if (_recordingModalHintCanvasGroup != null)
+            {
+                StartCoroutine(FadeOutCanvasGroup(_recordingModalHintCanvasGroup));
+            }
+
+            if (_recordingModalPreviewCanvasGroup != null)
+            {
+                StartCoroutine(FadeOutCanvasGroup(_recordingModalPreviewCanvasGroup));
+            }
+
+            if (_recordingModalStatusCanvasGroup != null)
+            {
+                StartCoroutine(FadeOutCanvasGroup(_recordingModalStatusCanvasGroup));
+            }
+
+            yield return StartCoroutine(WaitMenuTransitionStage());
+
+            if (_recordingModalActionsCanvasGroup != null)
+            {
+                StartCoroutine(FadeOutCanvasGroup(_recordingModalActionsCanvasGroup));
+            }
+
+            yield return StartCoroutine(FadeOutCanvasGroup(_recordingModalCanvasGroup));
+        }
+
+        private IEnumerator CloseWindowWithTransition()
+        {
+            yield return StartCoroutine(HideWindowWithMenuEffect());
+            SetVisible(false);
+            SetWindowPageVisible(true);
+            ResetWindowTransitionState();
+            RestoreNativeMenu(true);
+            SelectGameObject(null);
+            _isClosingWindow = false;
+            _pendingTransitionCoroutine = null;
+        }
+
+        private IEnumerator OpenRecordingModalWithTransition()
+        {
+            yield return StartCoroutine(ShowRecordingModalWithMenuEffect());
+            _pendingTransitionCoroutine = null;
+        }
+
+        private IEnumerator CloseRecordingModalWithTransition()
+        {
+            yield return StartCoroutine(HideRecordingModalWithMenuEffect());
+
+            ResetRecordingModalTransitionState();
+
+            if (_delayModal != null)
+            {
+                _delayModal.SetActive(false);
+            }
+
+            if (_recordingModal != null)
+            {
+                _recordingModal.SetActive(false);
+            }
+
+            SetWindowPageVisible(true);
+            HideModalHostIfIdle();
+            RefreshDynamicContent();
+            _pendingTransitionCoroutine = null;
+        }
+
         private void SetWindowPageVisible(bool visible)
         {
             if (_windowCanvasGroup == null)
@@ -1564,8 +2011,8 @@ namespace HkVoiceMod.UI
                 return;
             }
 
-            var recordingVisible = _recordingModal != null && _recordingModal.activeSelf;
-            var delayVisible = _delayModal != null && _delayModal.activeSelf;
+            var recordingVisible = _recordingModal != null && _recordingModal.activeInHierarchy;
+            var delayVisible = _delayModal != null && _delayModal.activeInHierarchy;
             _modalHost.SetActive(recordingVisible || delayVisible);
         }
         private bool IsEditingTextInput()

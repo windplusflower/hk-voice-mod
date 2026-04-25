@@ -511,3 +511,162 @@ None
 - [x] 3. 调整 `SettingsPageButtonStyle`，改为通过 ornament controller 触发 `show/hide`，而不是直接切 `Image.enabled`。
 - [x] 4. 保留 animator 缺失时的静态 fallback。
 - [x] 5. 运行 `dotnet build HkVoiceMod/HkVoiceMod.csproj -c Debug`，确认编译与部署成功。
+
+## 9. Follow-up Task: 菜单切换时对齐原生 hide 特效
+
+### 9.0 🚨 Open Questions
+None
+
+### 9.1 Requirements (Context)
+- **Goal**:
+  - 从游戏原生菜单进入宏设置时，原菜单不要瞬间消失，而要走原生下级菜单切换时的 hide 特效。
+  - 关闭录制页或关闭设置页时，自定义页面也要有与原生菜单一致风格的消失特效，而不是瞬间隐藏。
+- **In-Scope**:
+  - 检查原生菜单切换时的 hide/show 动画入口。
+  - 调整“进入宏设置”时对原生 `MenuScreen` 的隐藏方式。
+  - 为自定义设置页与录制页增加原生风格的分段淡出时序。
+- **Out-of-Scope**:
+  - 不重做整套自定义窗口结构。
+  - 不改业务流程（保存、取消、返回、录制状态机）。
+
+### 9.2 Code Map (Project Topology)
+- `hkapi/UIManager.cs`
+  - `HideMenu(MenuScreen menu)`: 原生菜单 hide 特效入口。
+  - `ShowMenu(MenuScreen menu)`: 原生菜单 show 特效入口。
+  - `FadeOutCanvasGroup(...)` / `FadeInCanvasGroup(...)`: 原生菜单淡入淡出节奏与速度来源。
+- `hkapi/MenuScreen.cs`
+  - `title / topFleur / content / controls / bottomFleur / screenCanvasGroup` 定义了原生菜单切换的分段结构。
+- `HkVoiceMod/UI/VoiceSettingsWindowController.cs`
+  - `Show(...)`: 进入宏设置时的入口。
+  - `HideNativeMenu(...)` / `RestoreNativeMenu(...)`: 当前仍是 `SetActive(false/true)` 的位置。
+  - `CloseRecordingModal(...)`: 关闭录制页的位置。
+  - `CloseWindow()`: 关闭设置页并回到底层菜单的位置。
+
+### 9.3 Research Findings / Architecture
+- 原生菜单切到下一级时，并不是简单 `SetActive(false)`。
+- `UIManager.HideMenu(MenuScreen)` 的真实时序是：
+  - 先淡出 `title`
+  - `0.1s` 后触发 `topFleur hide`
+  - 再 `0.1s` 后淡出 `content / controls`
+  - 再 `0.1s` 后触发 `bottomFleur hide`
+  - 最后淡出整个 `screenCanvasGroup`
+- 因此我们当前 `HideNativeMenu(returnScreen)` / `RestoreNativeMenu()` 的直接 `SetActive(false/true)` 会显得非常突兀。
+- 最小修复方向分两层：
+  - 对原生菜单本体：直接复用 `UIManager.HideMenu/ShowMenu`
+  - 对自定义设置页/录制页：按相同的 `0.1s` 分段节奏复刻 hide 序列，用现有 `CanvasGroup` 做淡出
+
+### 9.4 Detailed Design & Implementation
+- `File: HkVoiceMod/UI/VoiceSettingsWindowController.cs`
+  - 进入设置页：
+    - 改造当前 native menu 隐藏流程，不再直接 `returnScreen.gameObject.SetActive(false)`；
+    - 改为先准备自定义 overlay，但延后真正显示；
+    - 然后调用 `UIManager.instance.HideMenu(returnScreen)`；
+    - hide 完成后，再 reveal 自定义设置页。
+  - 关闭设置页：
+    - 为自定义设置页的 header / content / footer / ornament / root 增加独立 `CanvasGroup` 引用；
+    - 关闭时按原生 hide 节奏分段淡出；
+    - 自定义页完全隐藏后，调用 `UIManager.instance.ShowMenu(returnScreen)` 恢复底层菜单。
+  - 关闭录制页：
+    - 为 recording modal 的 title / body / actions / root 增加 `CanvasGroup` 引用；
+    - 关闭时按同样的 `0.1s` 分段 hide 时序淡出；
+    - 淡出结束后再切回设置页主体。
+  - 新增 transition coroutine 管理：
+    - 防止 open/close 动画未完成时重复触发下一次切换。
+  - 若运行时拿不到 `UIManager.instance`，则保留当前直接显隐作为 fallback。
+
+### 9.5 Execution Notes
+- 已执行方案：
+  - 进入宏设置时，不再直接 `SetActive(false)` 隐藏原生 `MenuScreen`；
+  - 改为先准备自定义 overlay，再调用 `UIManager.HideMenu(returnScreen)`，hide 完成后才 reveal 宏设置窗口；
+  - 关闭设置页时，先对自定义设置页执行分段淡出，再调用 `UIManager.ShowMenu(returnScreen)` 恢复底层菜单；
+  - 关闭录制页时，对 recording modal 执行分段淡出，结束后再切回设置页主体；
+  - 新增 transition coroutine 管理，避免切换动画未结束时重复触发新的 open/close。
+- 已落地的自定义 hide 时序：
+  - 设置页：`header -> top ornament -> content/footer -> bottom ornament -> window root`
+  - 录制页：`title -> hint/preview/status -> actions -> modal root`
+  - 各阶段之间统一使用 `0.1s` 间隔，淡出速度沿用原生菜单的 `MENU_FADE_SPEED`，缺失时回退到 `3.2f`。
+- 兼容性与 fallback：
+  - 若运行时拿不到 `UIManager.instance`，原生菜单仍会回退到直接显隐，不阻塞功能；
+  - 自定义设置页与录制页的淡出由本地 `CanvasGroup` 驱动，不依赖原生 `MenuScreen` 结构。
+- 已验证交付：`dotnet build HkVoiceMod/HkVoiceMod.csproj -c Debug` 成功，且产物已部署到游戏 Mods 目录。
+
+### 9.6 Implementation Checklist
+- [x] 1. 进入宏设置时改为复用 `UIManager.HideMenu(returnScreen)`。
+- [x] 2. 关闭设置页后改为复用 `UIManager.ShowMenu(returnScreen)` 恢复底层菜单。
+- [x] 3. 为自定义设置页增加分段 hide 的 `CanvasGroup` 引用与 coroutine。
+- [x] 4. 为录制页增加分段 hide 的 `CanvasGroup` 引用与 coroutine。
+- [x] 5. 增加 transition coroutine 防重入与清理逻辑。
+- [x] 6. 运行 `dotnet build HkVoiceMod/HkVoiceMod.csproj -c Debug`，确认编译与部署成功。
+
+### 9.7 Regression Note: 设置页按钮全部不可点击
+- 回归根因：第 9 节为设置页主体分段淡出而新增的多个 `CanvasGroup`（如 `StopContent`、`MacroContent`、`FooterContent`）在可见态被初始化为 `interactable = false`、`blocksRaycasts = false`。
+- 这类 `CanvasGroup` 不只是视觉组件；挂在按钮容器上时，会让其下所有 `Selectable` 被父级判定为不可交互，导致设置页一打开所有按钮都处于不可点击状态。
+- 最小修复策略：
+  - 这些“仅用于过渡淡出”的分段 `CanvasGroup` 在正常可见态必须保持 `interactable = true`、`blocksRaycasts = true`；
+  - 只有在 `FadeOutCanvasGroup(...)` 开始执行淡出时，才临时切换为不可交互，避免关闭动画期间误触。
+- 这样既保留分段淡出能力，也不会破坏设置页和录制页内按钮的正常输入。
+
+### 9.8 Regression Note: 设置页返回 / Esc 无响应
+- 回归现象：设置页打开后，点击“返回”或直接按 `Esc`，用户体感上没有关闭反应。
+- 根因拆分：
+  - `FinalizeReveal()` 会在窗口显示完成后立即 `FocusInputField(_stopWakeWordInput)`，导致主设置页默认处于文本输入焦点内；
+  - `Update()` 中主设置页的 `Esc` 处理又带了 `!IsEditingTextInput()` 条件，因此刚打开页面时按 `Esc` 会被直接拦掉；
+  - 同时，默认焦点留在输入框上也会让“我只是想退出页面”的交互显得迟钝，和原生菜单的返回直觉不一致。
+- 最小修复策略：
+  - 主设置页 reveal 完成后不再自动聚焦停止词输入框，改为清空当前选择；
+  - 主设置页无 modal 时，`Esc` 直接走 `RequestBack()`，不再受文本输入焦点限制；
+  - delay modal 仍保留现有 `Enter / Esc` 输入行为，不改其编辑流程。
+
+### 9.9 Regression Note: 录制页返回设置后仍无法退出
+- 回归现象：首次进入设置页时可以正常关闭；但只要进过一次录制页，再返回设置页后，“返回”和 `Esc` 都像失效一样。
+- 根因：
+  - `CloseRecordingModalWithTransition()` 在关闭录制页时，先执行 `_recordingModal.SetActive(false)` 与 `HideModalHostIfIdle()`；
+  - 但随后又调用 `ResetRecordingModalTransitionState()`，而这个 reset 会把 `_recordingModalCanvasGroup.gameObject.SetActive(true)`；
+  - 由于此时父级 `_modalHost` 已被隐藏，录制页不会显示出来，但 `_recordingModal.activeSelf` 会重新变成 `true`；
+  - 后续 `RequestBack()` 与 `Update()` 仍按 `activeSelf` 判断“录制页是否打开”，于是主设置页始终被误判为仍处于录制态，返回逻辑被错误导向 `CancelRecordingFromButton()`。
+- 最小修复策略：
+  - 调整录制页关闭后的 reset 顺序，先恢复下一次打开所需的 alpha / interactable 状态，再把录制页 root 明确设回 inactive；
+  - 同时把主设置页对 modal 可见性的判断改为基于 `activeInHierarchy`，避免再次被“父隐藏、子 activeSelf 为 true”的中间态误伤。
+
+### 9.10 Enhancement Note: 设置页与录制页打开动画
+- 新需求：设置页和录制页在打开时，也需要和关闭时同风格的过渡效果，避免内容瞬间跳出来。
+- 现状问题：
+  - 设置页进入时，原生菜单虽然已经先执行 `UIManager.HideMenu(returnScreen)`，但自定义窗口仍是 `SetVisible(true)` 后直接完整出现；
+  - 录制页进入时，`_modalHost.SetActive(true)` 与 `_recordingModal.SetActive(true)` 后也是整页瞬间出现。
+- 设计策略：
+  - 复用现有第 9 节的 `CanvasGroup` 分组，不新增新的 UI 结构；
+  - 增加与 `FadeOutCanvasGroup(...)` 对称的 `FadeInCanvasGroup(...)`；
+  - 为设置页与录制页分别增加“打开前预置为 alpha 0”的 prepare helper；
+  - 打开时按接近原生 `UIManager.ShowMenu(...)` 的节奏分段 reveal，而不是简单一次性显示。
+- 计划中的 reveal 时序：
+  - 设置页：`window root + header -> top ornament -> stop/macro/footer + bottom ornament`
+  - 录制页：`modal root + title -> hint/preview/status -> actions`
+  - 各阶段之间同样使用 `0.1s` 间隔，fade speed 继续复用 `MENU_FADE_SPEED` / `DefaultMenuFadeSpeed`。
+- 兼容性要求：
+  - 保持关闭动画逻辑不变；
+  - 保持 delay modal 的输入行为不变；
+  - 若 reveal coroutine 被中断，下一次进入前仍可用现有 reset helper 回到完整可见状态。
+
+### 9.11 Execution Notes: 设置页与录制页打开动画
+- 已执行方案：
+  - 新增与 `FadeOutCanvasGroup(...)` 对称的 `FadeInCanvasGroup(...)`；
+  - 新增 `PrepareWindowRevealTransitionState()` / `PrepareRecordingModalRevealTransitionState()`，在真正显示前先把分段 `CanvasGroup` 预置为 `alpha = 0`；
+  - 设置页打开时，不再在 layout settle 后直接 `SetVisible(true)` 完整出现，而是改为分段 reveal；
+  - 录制页打开时，不再在 `_modalHost.SetActive(true)` 后直接整页显示，而是改为先 hidden-state 准备，再执行 reveal coroutine。
+- 已落地的 reveal 时序：
+  - 设置页：`window root + header -> top ornament -> stop/macro/footer + bottom ornament`
+  - 录制页：`modal root + title -> hint/preview/status -> actions`
+  - 各阶段之间继续沿用 `0.1s` 间隔，fade speed 继续复用 `MENU_FADE_SPEED` / `DefaultMenuFadeSpeed`。
+- 兼容性说明：
+  - 关闭动画链路未改，仍使用现有 hide coroutine；
+  - delay modal 行为未改；
+  - 录制页入口现在会把 `_pendingTransitionCoroutine` 占用到 reveal 完成，避免打开过程中重复触发关闭或再次进入。
+- 已验证交付：`dotnet build HkVoiceMod/HkVoiceMod.csproj -c Debug` 成功，且产物已部署到游戏 Mods 目录。
+
+### 9.12 Implementation Checklist
+- [x] 1. 为设置页/录制页新增对称的 `FadeInCanvasGroup(...)`。
+- [x] 2. 为设置页新增 reveal 前 hidden-state prepare helper。
+- [x] 3. 为录制页新增 reveal 前 hidden-state prepare helper。
+- [x] 4. 设置页打开改为分段 reveal，而不是直接完整显示。
+- [x] 5. 录制页打开改为分段 reveal，而不是直接完整显示。
+- [x] 6. 运行 `dotnet build HkVoiceMod/HkVoiceMod.csproj -c Debug`，确认编译与部署成功。
