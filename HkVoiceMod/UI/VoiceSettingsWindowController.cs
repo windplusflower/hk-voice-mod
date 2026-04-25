@@ -1235,6 +1235,10 @@ namespace HkVoiceMod.UI
                     if (macro.KeyEvents.Count > 0)
                     {
                         macro.KeyEvents.RemoveAt(macro.KeyEvents.Count - 1);
+                        if (macro.KeyEvents.Count == 0)
+                        {
+                            VoiceMacroCaptureService.Instance.ResetRecordedEventHistory(macro.Id);
+                        }
                     }
                 },
                 () => CloseRecordingModal(false, true),
@@ -1280,6 +1284,7 @@ namespace HkVoiceMod.UI
             _editingDelayStepIndex = -1;
             VoiceMacroCaptureService.Instance.StopActiveCapture(_recordingMacro.Id);
             _recordingMacro.KeyEvents.Clear();
+            VoiceMacroCaptureService.Instance.ResetRecordedEventHistory(_recordingMacro.Id);
             RefreshDynamicContent();
         }
 

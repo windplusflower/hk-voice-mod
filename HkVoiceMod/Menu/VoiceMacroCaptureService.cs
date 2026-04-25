@@ -202,6 +202,18 @@ namespace HkVoiceMod.Menu
             _onConfirm = null;
         }
 
+        public void ResetRecordedEventHistory(string macroId)
+        {
+            if (!HasCaptureSession(macroId))
+            {
+                return;
+            }
+
+            _hasRecordedAnyEvent = false;
+            _lastRecordedEventRealtime = 0f;
+            _activeCapturedKeysByKeyCode.Clear();
+        }
+
         private void EnsureMonitor()
         {
             if (_behaviour != null)
