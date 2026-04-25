@@ -63,9 +63,9 @@ namespace HkVoiceMod.Input
             {
                 foreach (var actionButton in actionButtons)
                 {
-                    if (releaseOppositeHorizontalHold)
+                    if (releaseOppositeHorizontalHold || HeroActionButtonCatalog.IsVertical(actionButton))
                     {
-                        ReleaseOppositeHorizontalHold(actionButton);
+                        ReleaseOppositeDirectionalState(actionButton);
                     }
 
                     _continuousHeldButtons.Add(actionButton);
@@ -77,6 +77,11 @@ namespace HkVoiceMod.Input
 
             foreach (var actionButton in actionButtons)
             {
+                if (HeroActionButtonCatalog.IsVertical(actionButton))
+                {
+                    ReleaseOppositeDirectionalState(actionButton);
+                }
+
                 var releaseAt = realtimeSinceStartup + durationSeconds;
                 if (_scheduledReleaseTimes.TryGetValue(actionButton, out var existingReleaseAt) && existingReleaseAt > releaseAt)
                 {
@@ -101,6 +106,7 @@ namespace HkVoiceMod.Input
 
         public void PressMacroActionButton(global::GlobalEnums.HeroActionButton actionButton)
         {
+            ReleaseOppositeDirectionalState(actionButton);
             _macroHeldButtons.Add(actionButton);
         }
 
@@ -171,10 +177,7 @@ namespace HkVoiceMod.Input
             }
 
             var tick = GetCurrentInputManagerTick();
-
-            var moveVector = inputActions.moveVector;
-            var hardwareHorizontal = moveVector != null ? ReadHardwareAxis(moveVector.X) : 0f;
-            var hardwareVertical = moveVector != null ? ReadHardwareAxis(moveVector.Y) : 0f;
+            var hardwarePressedStates = new Dictionary<global::GlobalEnums.HeroActionButton, bool>(HeroActionButtonCatalog.SupportedGameplayButtons.Count);
 
             foreach (var actionButton in HeroActionButtonCatalog.SupportedGameplayButtons)
             {
@@ -184,10 +187,12 @@ namespace HkVoiceMod.Input
                     continue;
                 }
 
-                CommitAction(action, ReadHardwarePressed(action) || IsActionButtonPressed(actionButton), tick, unscaledDeltaTime);
+                var hardwarePressed = ReadHardwarePressed(action);
+                hardwarePressedStates[actionButton] = hardwarePressed;
+                CommitAction(action, hardwarePressed || IsActionButtonPressed(actionButton), tick, unscaledDeltaTime);
             }
 
-            SyncMoveVector(inputActions, hardwareHorizontal, hardwareVertical, tick, unscaledDeltaTime);
+            SyncMoveVector(inputActions, hardwarePressedStates, tick, unscaledDeltaTime);
         }
 
         private bool IsActionButtonPressed(global::GlobalEnums.HeroActionButton actionButton)
@@ -207,22 +212,12 @@ namespace HkVoiceMod.Input
             return action != null && action.IsPressed;
         }
 
-        private static float ReadHardwareAxis(float axis)
-        {
-            if (float.IsNaN(axis) || float.IsInfinity(axis))
-            {
-                return 0f;
-            }
-
-            return axis;
-        }
-
         private static ulong GetCurrentInputManagerTick()
         {
             return global::InControl.InputManager.CurrentTick;
         }
 
-        private void SyncMoveVector(global::HeroActions inputActions, float hardwareHorizontal, float hardwareVertical, ulong tick, float unscaledDeltaTime)
+        private void SyncMoveVector(global::HeroActions inputActions, IReadOnlyDictionary<global::GlobalEnums.HeroActionButton, bool> hardwarePressedStates, ulong tick, float unscaledDeltaTime)
         {
             var moveVector = inputActions.moveVector;
             if (moveVector == null)
@@ -230,33 +225,38 @@ namespace HkVoiceMod.Input
                 return;
             }
 
-            var voiceHorizontal = 0f;
-            if (IsActionButtonPressed(global::GlobalEnums.HeroActionButton.LEFT))
-            {
-                voiceHorizontal -= 1f;
-            }
+            var horizontal = ComposeDirectionalAxis(
+                ReadCachedHardwarePressed(hardwarePressedStates, global::GlobalEnums.HeroActionButton.LEFT),
+                ReadCachedHardwarePressed(hardwarePressedStates, global::GlobalEnums.HeroActionButton.RIGHT),
+                IsActionButtonPressed(global::GlobalEnums.HeroActionButton.LEFT),
+                IsActionButtonPressed(global::GlobalEnums.HeroActionButton.RIGHT));
 
-            if (IsActionButtonPressed(global::GlobalEnums.HeroActionButton.RIGHT))
-            {
-                voiceHorizontal += 1f;
-            }
-
-            var voiceVertical = 0f;
-            if (IsActionButtonPressed(global::GlobalEnums.HeroActionButton.DOWN))
-            {
-                voiceVertical -= 1f;
-            }
-
-            if (IsActionButtonPressed(global::GlobalEnums.HeroActionButton.UP))
-            {
-                voiceVertical += 1f;
-            }
-
-            var horizontal = Math.Max(-1f, Math.Min(1f, hardwareHorizontal + voiceHorizontal));
-            var vertical = Math.Max(-1f, Math.Min(1f, hardwareVertical + voiceVertical));
+            var vertical = ComposeDirectionalAxis(
+                ReadCachedHardwarePressed(hardwarePressedStates, global::GlobalEnums.HeroActionButton.DOWN),
+                ReadCachedHardwarePressed(hardwarePressedStates, global::GlobalEnums.HeroActionButton.UP),
+                IsActionButtonPressed(global::GlobalEnums.HeroActionButton.DOWN),
+                IsActionButtonPressed(global::GlobalEnums.HeroActionButton.UP));
 
             var updateWithAxes = ResolveUpdateWithAxesMethod(moveVector.GetType());
             updateWithAxes?.Invoke(moveVector, new object[] { horizontal, vertical, tick, unscaledDeltaTime });
+        }
+
+        private static float ComposeDirectionalAxis(bool hardwareNegative, bool hardwarePositive, bool voiceNegative, bool voicePositive)
+        {
+            var negative = hardwareNegative || voiceNegative;
+            var positive = hardwarePositive || voicePositive;
+
+            if (negative == positive)
+            {
+                return 0f;
+            }
+
+            return negative ? -1f : 1f;
+        }
+
+        private static bool ReadCachedHardwarePressed(IReadOnlyDictionary<global::GlobalEnums.HeroActionButton, bool> hardwarePressedStates, global::GlobalEnums.HeroActionButton actionButton)
+        {
+            return hardwarePressedStates.TryGetValue(actionButton, out var isPressed) && isPressed;
         }
 
         private MethodInfo? ResolveUpdateWithAxesMethod(Type moveVectorType)
@@ -291,17 +291,33 @@ namespace HkVoiceMod.Input
             return inputHandler.ActionButtonToPlayerAction(actionButton);
         }
 
-        private void ReleaseOppositeHorizontalHold(global::GlobalEnums.HeroActionButton actionButton)
+        private void ReleaseOppositeDirectionalState(global::GlobalEnums.HeroActionButton actionButton)
         {
-            if (actionButton == global::GlobalEnums.HeroActionButton.LEFT)
+            var oppositeActionButton = GetOppositeDirectionalButton(actionButton);
+            if (!oppositeActionButton.HasValue)
             {
-                _continuousHeldButtons.Remove(global::GlobalEnums.HeroActionButton.RIGHT);
                 return;
             }
 
-            if (actionButton == global::GlobalEnums.HeroActionButton.RIGHT)
+            _continuousHeldButtons.Remove(oppositeActionButton.Value);
+            _macroHeldButtons.Remove(oppositeActionButton.Value);
+            _scheduledReleaseTimes.Remove(oppositeActionButton.Value);
+        }
+
+        private static global::GlobalEnums.HeroActionButton? GetOppositeDirectionalButton(global::GlobalEnums.HeroActionButton actionButton)
+        {
+            switch (actionButton)
             {
-                _continuousHeldButtons.Remove(global::GlobalEnums.HeroActionButton.LEFT);
+                case global::GlobalEnums.HeroActionButton.LEFT:
+                    return global::GlobalEnums.HeroActionButton.RIGHT;
+                case global::GlobalEnums.HeroActionButton.RIGHT:
+                    return global::GlobalEnums.HeroActionButton.LEFT;
+                case global::GlobalEnums.HeroActionButton.DOWN:
+                    return global::GlobalEnums.HeroActionButton.UP;
+                case global::GlobalEnums.HeroActionButton.UP:
+                    return global::GlobalEnums.HeroActionButton.DOWN;
+                default:
+                    return null;
             }
         }
     }
