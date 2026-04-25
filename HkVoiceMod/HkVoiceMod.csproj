@@ -70,6 +70,10 @@
       <HintPath>$(GameManagedDir)\UnityEngine.InputLegacyModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="UnityEngine.AnimationModule" Condition="Exists('$(GameManagedDir)\UnityEngine.AnimationModule.dll')">
+      <HintPath>$(GameManagedDir)\UnityEngine.AnimationModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="UnityEngine.UI" Condition="Exists('$(GameManagedDir)\UnityEngine.UI.dll')">
       <HintPath>$(GameManagedDir)\UnityEngine.UI.dll</HintPath>
       <Private>false</Private>

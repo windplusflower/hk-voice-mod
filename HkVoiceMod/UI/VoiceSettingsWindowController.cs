@@ -5,6 +5,7 @@ using System.Text;
 using HkVoiceMod.Commands;
 using HkVoiceMod.Menu;
 using Modding;
+using Modding.Menu;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -542,7 +543,7 @@ namespace HkVoiceMod.UI
             }
 
             var valueLabelRect = valueText.rectTransform;
-            valueLabelRect.offsetMin = new Vector2(valueLabelRect.offsetMin.x, 1f);
+            valueLabelRect.offsetMin = new Vector2(64f, 1f);
             valueLabelRect.offsetMax = new Vector2(valueLabelRect.offsetMax.x, -1f);
             valueText.alignment = TextAnchor.MiddleLeft;
             valueText.horizontalOverflow = HorizontalWrapMode.Overflow;
@@ -2151,7 +2152,7 @@ namespace HkVoiceMod.UI
             ApplyButtonTheme(button, labelText, kind);
         }
 
-        private static Image CreateSettingsPageButtonOrnament(Transform parent, string name, bool alignRight)
+        private static SettingsPageButtonOrnament CreateSettingsPageButtonOrnament(Transform parent, string name, bool alignRight)
         {
             var ornament = new GameObject(name, typeof(RectTransform), typeof(Image), typeof(SettingsPageButtonOrnament));
             ornament.transform.SetParent(parent, false);
@@ -2165,9 +2166,11 @@ namespace HkVoiceMod.UI
 
             var ornamentImage = ornament.GetComponent<Image>();
             ornamentImage.raycastTarget = false;
-            ornamentImage.enabled = false;
             ornamentImage.fillCenter = false;
-            return ornamentImage;
+
+            var ornamentController = ornament.GetComponent<SettingsPageButtonOrnament>();
+            ornamentController.Initialize(ornamentImage, alignRight);
+            return ornamentController;
         }
 
         private GameObject CreatePanel(Transform parent, string name, Color color)
@@ -2336,6 +2339,166 @@ namespace HkVoiceMod.UI
 
         private sealed class SettingsPageButtonOrnament : MonoBehaviour
         {
+            private const float StaticWidth = 28f;
+            private const float StaticHeight = 36f;
+            private const float StaticOffsetX = 18f;
+            private const float NativeWidth = 164f;
+            private const float NativeHeight = 119f;
+            private const float NativeOffsetX = 30f;
+            private const float NativeScale = 0.22f;
+
+            private Image? _image;
+            private Animator? _animator;
+            private bool _alignRight;
+            private float _edgeOffsetX;
+
+            public void Initialize(Image image, bool alignRight)
+            {
+                _image = image ?? throw new ArgumentNullException(nameof(image));
+                _alignRight = alignRight;
+                _edgeOffsetX = alignRight ? NativeOffsetX : NativeOffsetX;
+                ApplyStaticLayout();
+                TryEnableNativeAnimator();
+            }
+
+            public float GetVisualHalfWidth()
+            {
+                return _animator != null
+                    ? NativeWidth * NativeScale * 0.5f
+                    : StaticWidth * 0.5f;
+            }
+
+            public void SetEdgeOffset(float offsetX)
+            {
+                _edgeOffsetX = Mathf.Max(0f, offsetX);
+                ApplyCurrentOffset();
+            }
+
+            public void ApplyTheme(VoiceSettingsTheme theme, VoiceThemeButtonKind kind)
+            {
+                if (_image == null)
+                {
+                    return;
+                }
+
+                TryEnableNativeAnimator();
+                if (_animator != null)
+                {
+                    ApplyNativeLayout();
+                    _image.enabled = true;
+                    _image.sprite = null;
+                    _image.type = Image.Type.Simple;
+                    _image.color = Color.white;
+                    _image.preserveAspect = false;
+                    return;
+                }
+
+                ApplyStaticLayout();
+                var sprite = theme.GetButtonSprite(kind);
+                _image.sprite = sprite;
+                _image.type = sprite != null && theme.ButtonSpriteIsSliced ? Image.Type.Sliced : Image.Type.Simple;
+                _image.color = Color.white;
+                _image.preserveAspect = false;
+                _image.fillCenter = false;
+                _image.enabled = false;
+            }
+
+            public void SetVisible(bool visible)
+            {
+                if (_image == null)
+                {
+                    return;
+                }
+
+                if (_animator != null)
+                {
+                    if (visible)
+                    {
+                        _animator.ResetTrigger("hide");
+                        _animator.SetTrigger("show");
+                    }
+                    else
+                    {
+                        _animator.ResetTrigger("show");
+                        _animator.SetTrigger("hide");
+                    }
+
+                    return;
+                }
+
+                _image.enabled = visible;
+            }
+
+            private void TryEnableNativeAnimator()
+            {
+                if (_animator != null)
+                {
+                    return;
+                }
+
+                MenuResources.ReloadResources();
+                if (MenuResources.MenuCursorAnimator == null)
+                {
+                    return;
+                }
+
+                _animator = gameObject.GetComponent<Animator>();
+                if (_animator == null)
+                {
+                    _animator = gameObject.AddComponent<Animator>();
+                }
+
+                _animator.runtimeAnimatorController = MenuResources.MenuCursorAnimator;
+                _animator.updateMode = AnimatorUpdateMode.UnscaledTime;
+                _animator.applyRootMotion = false;
+                ApplyNativeLayout();
+            }
+
+            private void ApplyStaticLayout()
+            {
+                if (_image == null)
+                {
+                    return;
+                }
+
+                var rect = _image.rectTransform;
+                rect.sizeDelta = new Vector2(StaticWidth, StaticHeight);
+                rect.localScale = new Vector3(_alignRight ? -1f : 1f, 1f, 1f);
+                if (_edgeOffsetX <= 0f)
+                {
+                    _edgeOffsetX = StaticOffsetX;
+                }
+
+                ApplyCurrentOffset();
+            }
+
+            private void ApplyNativeLayout()
+            {
+                if (_image == null)
+                {
+                    return;
+                }
+
+                var rect = _image.rectTransform;
+                rect.sizeDelta = new Vector2(NativeWidth, NativeHeight);
+                rect.localScale = new Vector3(_alignRight ? -NativeScale : NativeScale, NativeScale, NativeScale);
+                if (_edgeOffsetX <= 0f)
+                {
+                    _edgeOffsetX = NativeOffsetX;
+                }
+
+                ApplyCurrentOffset();
+            }
+
+            private void ApplyCurrentOffset()
+            {
+                if (_image == null)
+                {
+                    return;
+                }
+
+                _image.rectTransform.anchoredPosition = new Vector2(_alignRight ? -_edgeOffsetX : _edgeOffsetX, 0f);
+            }
         }
 
         private sealed class SettingsPageButtonStyle : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler, ISelectHandler, IDeselectHandler
@@ -2344,9 +2507,9 @@ namespace HkVoiceMod.UI
 
             public Text LabelText { get; set; } = null!;
 
-            public Image LeftArrow { get; set; } = null!;
+            public SettingsPageButtonOrnament LeftArrow { get; set; } = null!;
 
-            public Image RightArrow { get; set; } = null!;
+            public SettingsPageButtonOrnament RightArrow { get; set; } = null!;
 
             public VoiceThemeButtonKind Kind { get; set; }
 
@@ -2354,6 +2517,14 @@ namespace HkVoiceMod.UI
             private bool _isHovered;
             private bool _isSelected;
             private bool _lastInteractable;
+            private bool _ornamentsVisible;
+            private float _lastButtonWidth = -1f;
+            private float _lastLabelPreferredWidth = -1f;
+            private string _lastLabelText = string.Empty;
+
+            private const float OrnamentTargetGap = 10f;
+            private const float OrnamentMaxInsideOffset = 30f;
+            private const float OrnamentTextWidthPadding = 12f;
 
             public void ApplyTheme(VoiceSettingsTheme theme)
             {
@@ -2376,15 +2547,19 @@ namespace HkVoiceMod.UI
                     LabelText.font = theme.PrimaryFont;
                 }
 
-                ApplyOrnamentTheme(LeftArrow, theme, false);
-                ApplyOrnamentTheme(RightArrow, theme, true);
+                ApplyOrnamentTheme(LeftArrow, theme);
+                ApplyOrnamentTheme(RightArrow, theme);
+                RefreshOrnamentLayout(force: true);
                 _lastInteractable = IsButtonInteractable();
+                _ornamentsVisible = false;
                 _isSelected = EventSystem.current != null && EventSystem.current.currentSelectedGameObject == gameObject;
                 RefreshVisualState();
             }
 
             private void Update()
             {
+                RefreshOrnamentLayout();
+
                 var isInteractable = IsButtonInteractable();
                 if (isInteractable == _lastInteractable)
                 {
@@ -2433,20 +2608,15 @@ namespace HkVoiceMod.UI
                 RefreshVisualState();
             }
 
-            private void ApplyOrnamentTheme(Image image, VoiceSettingsTheme theme, bool flipHorizontally)
+            private void ApplyOrnamentTheme(SettingsPageButtonOrnament ornament, VoiceSettingsTheme theme)
             {
-                if (image == null)
+                if (ornament == null)
                 {
                     return;
                 }
 
-                var sprite = theme.GetButtonSprite(Kind);
-                image.sprite = sprite;
-                image.type = sprite != null && theme.ButtonSpriteIsSliced ? Image.Type.Sliced : Image.Type.Simple;
-                image.color = Color.white;
-                image.preserveAspect = false;
-                image.fillCenter = false;
-                image.rectTransform.localScale = new Vector3(flipHorizontally ? -1f : 1f, 1f, 1f);
+                ornament.ApplyTheme(theme, Kind);
+                ornament.SetVisible(false);
             }
 
             private bool IsButtonInteractable()
@@ -2458,6 +2628,7 @@ namespace HkVoiceMod.UI
             {
                 var isInteractable = IsButtonInteractable();
                 _lastInteractable = isInteractable;
+                RefreshOrnamentLayout();
 
                 if (LabelText != null && _theme != null)
                 {
@@ -2465,15 +2636,69 @@ namespace HkVoiceMod.UI
                 }
 
                 var showOrnaments = isInteractable && (_isHovered || _isSelected);
+                if (showOrnaments == _ornamentsVisible)
+                {
+                    return;
+                }
+
+                _ornamentsVisible = showOrnaments;
+
                 if (LeftArrow != null)
                 {
-                    LeftArrow.enabled = showOrnaments;
+                    LeftArrow.SetVisible(showOrnaments);
                 }
 
                 if (RightArrow != null)
                 {
-                    RightArrow.enabled = showOrnaments;
+                    RightArrow.SetVisible(showOrnaments);
                 }
+            }
+
+            private void RefreshOrnamentLayout(bool force = false)
+            {
+                if (Button == null || LabelText == null || LeftArrow == null || RightArrow == null)
+                {
+                    return;
+                }
+
+                var buttonRect = Button.GetComponent<RectTransform>();
+                if (buttonRect == null)
+                {
+                    return;
+                }
+
+                var buttonWidth = buttonRect.rect.width;
+                var labelText = LabelText.text ?? string.Empty;
+                var labelPreferredWidth = CalculateEffectiveLabelWidth(buttonWidth);
+                if (!force
+                    && Mathf.Abs(buttonWidth - _lastButtonWidth) < 0.5f
+                    && Mathf.Abs(labelPreferredWidth - _lastLabelPreferredWidth) < 0.5f
+                    && string.Equals(labelText, _lastLabelText, StringComparison.Ordinal))
+                {
+                    return;
+                }
+
+                _lastButtonWidth = buttonWidth;
+                _lastLabelPreferredWidth = labelPreferredWidth;
+                _lastLabelText = labelText;
+
+                var ornamentHalfWidth = Mathf.Max(LeftArrow.GetVisualHalfWidth(), RightArrow.GetVisualHalfWidth());
+                var edgeOffset = buttonWidth * 0.5f - labelPreferredWidth * 0.5f - OrnamentTargetGap - ornamentHalfWidth;
+                edgeOffset = Mathf.Min(edgeOffset, OrnamentMaxInsideOffset);
+
+                LeftArrow.SetEdgeOffset(edgeOffset);
+                RightArrow.SetEdgeOffset(edgeOffset);
+            }
+
+            private float CalculateEffectiveLabelWidth(float buttonWidth)
+            {
+                if (LabelText == null)
+                {
+                    return 0f;
+                }
+
+                var availableWidth = Mathf.Max(0f, buttonWidth - OrnamentTextWidthPadding * 2f);
+                return Mathf.Min(LabelText.preferredWidth, availableWidth);
             }
         }
     }

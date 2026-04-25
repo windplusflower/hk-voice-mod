@@ -399,3 +399,115 @@ None
 - [x] 7. 新增延迟 reveal coroutine，在布局稳定后再显示窗口。
 - [x] 8. 在重新打开或关闭窗口时清理未完成的 reveal coroutine。
 - [x] 9. 再次运行 `dotnet build HkVoiceMod/HkVoiceMod.csproj -c Debug`，确认编译与部署成功。
+
+## 8. Follow-up Task: 自定义按钮左右 ornament 对齐原生悬浮动画
+
+### 8.0 🚨 Open Questions
+None
+
+### 8.1 Requirements (Context)
+- **Goal**: 让自定义编辑器里按钮左右两侧的 ornament，在鼠标悬浮/选中时使用和游戏原生菜单一致的出现/隐藏动画，而不是当前的瞬时出现。
+- **In-Scope**:
+  - 检查当前自定义按钮 ornament 的显示逻辑。
+  - 对齐原生菜单按钮 cursor 的 show/hide 驱动方式。
+  - 在不破坏当前禁用态灰色文本、选中态 ornament 逻辑的前提下，给自定义按钮接入同类动画。
+- **Out-of-Scope**:
+  - 不重做按钮文本、底图或闪光效果。
+  - 不修改非按钮 ornament（如页面顶部/底部 ornament section）。
+
+### 8.2 Code Map (Project Topology)
+- `HkVoiceMod/UI/VoiceSettingsWindowController.cs`
+  - `CreateSettingsPageButtonOrnament(...)`: 当前自定义 ornament 节点创建位置。
+  - `SettingsPageButtonStyle.RefreshVisualState()`: 当前 ornament 直接 `enabled = true/false` 的逻辑位置。
+  - `SettingsPageButtonOrnament`: 当前为空 marker component，可扩展成 ornament 动画控制入口。
+- `hkapi/UnityEngine/UI/MenuSelectable.cs`
+  - 原生菜单按钮在 `OnSelect(...)` / `ValidateDeselect()` 中对左右 cursor 的 `Animator` 发送 `show/hide` trigger。
+- `hkapi/Modding/Menu/MenuResources.cs`
+  - `MenuResources.MenuCursorAnimator` 提供原生菜单 cursor 使用的 animator controller，名称为 `Menu Fleur`。
+- `hkapi/Modding/Menu/MenuButtonContent.cs`
+  - Satchel/Modding 菜单按钮创建左右 cursor 时，直接挂 `Animator + Image`，并复用 `MenuResources.MenuCursorAnimator`。
+
+### 8.3 Research Findings / Architecture
+- 当前自定义按钮 ornament 只是 `Image.enabled = showOrnaments`，因此只有瞬时出现/隐藏，没有动画。
+- 原生菜单的左右 cursor 不是手写 Lerp，而是挂了 `Animator`，并通过 `show/hide` trigger 驱动。
+- 最小且最贴近原生的方案不是重新猜一套动画曲线，而是直接复用 `MenuResources.MenuCursorAnimator`。
+- 兼容性考虑：如果某些运行时拿不到 `MenuCursorAnimator`，则保留当前静态 ornament 作为 fallback，避免按钮完全失去 ornament。
+
+### 8.4 Detailed Design & Implementation
+- `File: HkVoiceMod/UI/VoiceSettingsWindowController.cs`
+  - `CreateSettingsPageButtonOrnament(...)`
+    - 创建 ornament 时尝试挂载 `Animator`，并复用 `MenuResources.MenuCursorAnimator`。
+    - 若 animator 可用，则 ornament 进入“原生 cursor 模式”；否则保留当前静态 image 模式。
+  - `SettingsPageButtonOrnament`
+    - 从空 marker component 扩展为 ornament 控制器。
+    - 负责：
+      - 初始化 `Image/Animator`；
+      - 判断当前是否使用原生 animator；
+      - 对外暴露 `Show()` / `Hide()`，内部改为发送 `show/hide` trigger；
+      - 在无 animator 时回退到 `Image.enabled` 直显逻辑。
+  - `SettingsPageButtonStyle`
+    - `LeftArrow` / `RightArrow` 改为通过 `SettingsPageButtonOrnament` 控制显隐，而不是直接切 `Image.enabled`。
+    - 保留现有 `showOrnaments = isInteractable && (_isHovered || _isSelected)` 判定，只替换底层显示方式。
+    - 增加 ornament 可见状态缓存，避免每次 `RefreshVisualState()` 都重复触发 `show/hide`。
+- `File: HkVoiceMod/HkVoiceMod.csproj`
+  - 新增 `UnityEngine.AnimationModule` 引用。
+  - 原因：`Animator` 类型位于该模块，若不显式引用则当前工程无法编译通过。
+- 不修改按钮业务逻辑；hover/selected/interactable 的判定链路保持不变。
+
+### 8.5 Execution Notes
+- 已执行方案：
+  - 将 `SettingsPageButtonOrnament` 从空 marker component 扩展为 ornament 控制器；
+  - ornament 优先尝试接入 `MenuResources.MenuCursorAnimator`，并通过 `show/hide` trigger 驱动；
+  - 当运行时拿不到 `MenuCursorAnimator` 时，自动回退到原有静态 image ornament；
+  - `SettingsPageButtonStyle` 改为通过 ornament controller 控制显隐，并增加 `_ornamentsVisible` 缓存，避免重复打 trigger；
+  - `HkVoiceMod.csproj` 已新增 `UnityEngine.AnimationModule` 引用，解决 `Animator` 编译依赖。
+- 已执行结果：
+  - 自定义按钮左右 ornament 不再是瞬时 `enabled` 开关；
+  - 在资源可用的情况下，会走和原生菜单一致的 `MenuCursorAnimator + show/hide` 驱动链路；
+  - 资源不可用时仍保留静态 ornament，不会让按钮失去装饰。
+- 回归修正：
+  - 首次 animator 接入后，ornament 一度“完全不出现”；
+  - 直接原因是 animator 模式下把 ornament `Image.color` 错误设成了透明，导致原生 cursor 动画整体不可见；
+  - 已修正为 `Color.white`，保持原生动画输出可见。
+- 视觉回调：
+  - 用户复测后反馈 animator 模式下的左右 ornament “太大、太开”；
+  - 根因是直接沿用了原生菜单 `CursorLeft/CursorRight` 的外侧偏移参数（`65f`）和 `0.4f` 缩放，这对当前自定义按钮宽度来说过大、过远；
+  - 修正策略是不改动画 controller，只回调自定义 ornament 的本地布局参数：
+    - 缩放下调；
+    - 偏移从按钮外侧收回到按钮边缘内侧。
+- 本轮已执行的具体参数：
+  - `NativeScale`: `0.4f -> 0.22f`
+  - `NativeOffsetX`: `65f -> 24f`
+  - `ApplyNativeLayout()` 的 anchoredPosition 符号从“外侧偏移”改为“内侧偏移”
+- 二次微调：
+  - 用户反馈当前大小合适，但距离“有点太近”；
+  - 仅继续回调间距，不改大小与动画；
+  - `NativeOffsetX`: `24f -> 30f`
+- 三次观察结论：
+  - 用户进一步反馈 spacing 不是统一偏近，而是**不同按钮差异很大**：
+    - `录制` 按钮基本合适；
+    - `删除` 按钮偏近；
+    - 底部 footer 按钮与录制页按钮明显更近。
+  - 根因不是单一常量值错误，而是当前所有按钮共用固定 `NativeOffsetX`，但按钮宽度（如 `120 / 140 / 170 / 220`）和文案长度差异很大，固定偏移无法同时适配。
+  - 修正方向升级为：
+    - 不再用单一固定 ornament 偏移；
+    - 改为基于“按钮实际宽度 + 当前文案宽度 + ornament 可视半宽”动态计算每个按钮的左右距离；
+    - 必要时允许 ornament 轻微越出按钮边缘，以保持不同按钮上的观感更一致。
+- 本轮已执行：
+  - `SettingsPageButtonStyle` 新增动态 ornament layout 逻辑；
+  - 每次按钮宽度或文案变化时，重新计算：
+    - `edgeOffset = buttonWidth / 2 - labelWidth / 2 - targetGap - ornamentHalfWidth`
+  - 并把结果同步到左右 ornament controller；
+  - 这样 `120 / 140 / 170 / 220` 宽度按钮不再共用同一个固定间距。
+- 录制事件行专项修正：
+  - 用户确认其它按钮都已正常，仅 `当前完整事件序列` 列表里的 value 按钮仍显得太近；
+  - 根因是这类按钮的文本是 `MiddleLeft` 左对齐，但仍沿用了普通按钮的默认左内边距，导致左 ornament 顶到文本起点；
+  - 已在 `BuildRecordingStepRow(...)` 中把 value 文本左内边距提升到 `64f`，仅影响该类录制事件行按钮。
+- 已验证交付：`dotnet build HkVoiceMod/HkVoiceMod.csproj -c Debug` 成功，且产物已部署到游戏 Mods 目录。
+
+### 8.6 Implementation Checklist
+- [x] 1. 扩展 `SettingsPageButtonOrnament`，接入 `MenuResources.MenuCursorAnimator`。
+- [x] 2. 调整 `CreateSettingsPageButtonOrnament(...)`，让 ornament 节点支持原生 animator 模式。
+- [x] 3. 调整 `SettingsPageButtonStyle`，改为通过 ornament controller 触发 `show/hide`，而不是直接切 `Image.enabled`。
+- [x] 4. 保留 animator 缺失时的静态 fallback。
+- [x] 5. 运行 `dotnet build HkVoiceMod/HkVoiceMod.csproj -c Debug`，确认编译与部署成功。
