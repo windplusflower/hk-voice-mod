@@ -1,0 +1,33 @@
+<Project>
+  <!--
+    Validation and reporting stay inside MSBuild on purpose:
+    - Exists / MakeDir / RemoveDir / Copy use evaluated MSBuild paths instead of shell commands.
+    - As long as upstream properties come from Path.Combine, the same targets remain valid on Windows and Linux.
+  -->
+  <Target Name="ValidateLocalBuildConfig" BeforeTargets="PrepareForBuild" Condition="'$(UseHkVoiceLocalGameReferences)' == 'true'">
+    <Error Condition="!Exists('$(HkVoiceLocalBuildPropsFile)')"
+           Text="Missing local build config: $(HkVoiceLocalBuildPropsFile). Copy build/HkVoiceMod.Local.props.example to build/HkVoiceMod.Local.props and set HkGameDir before building." />
+    <Error Condition="'$(HkGameDir)' == ''"
+           Text="Property HkGameDir is not set. Fill HkGameDir in build/HkVoiceMod.Local.props before building." />
+    <Error Condition="!Exists('$(HkGameDir)')"
+           Text="Configured HkGameDir does not exist: $(HkGameDir)" />
+    <Error Condition="'$(HkManagedDir)' == ''"
+           Text="Property HkManagedDir resolved to empty. Check build/HkVoiceMod.Local.props." />
+    <Error Condition="!Exists('$(HkManagedDir)')"
+           Text="Configured HkManagedDir does not exist: $(HkManagedDir)" />
+    <Error Condition="'$(HkModsDir)' == ''"
+           Text="Property HkModsDir resolved to empty. Check build/HkVoiceMod.Local.props." />
+    <Error Condition="!Exists('$(HkUnityEngineDllPath)') and !Exists('$(HkUnityEngineCoreModuleDllPath)')"
+           Text="Missing required real dependency: UnityEngine.dll or UnityEngine.CoreModule.dll under $(HkManagedDir)." />
+    <Error Condition="!Exists('$(SatchelDllPath)')"
+           Text="Missing required real dependency: Satchel.dll -> $(SatchelDllPath). Install Satchel under $(HkModsDir) or override SatchelDllPath in build/HkVoiceMod.Local.props." />
+    <Error Condition="!Exists('%(HkVoiceRealReference.Path)') and '%(HkVoiceRealReference.Required)' == 'true'"
+           Text="Missing required real dependency: %(HkVoiceRealReference.Identity) -> %(HkVoiceRealReference.Path). %(HkVoiceRealReference.ErrorHint)" />
+  </Target>
+
+  <Target Name="ReportResolvedLocalReferences" Condition="'$(UseHkVoiceLocalGameReferences)' == 'true'">
+    <Message Importance="high"
+             Text="Resolved local reference: %(HkVoiceRealReference.Identity) -> %(HkVoiceRealReference.Path)"
+             Condition="Exists('%(HkVoiceRealReference.Path)')" />
+  </Target>
+</Project>

@@ -9,5 +9,6 @@ HkVoiceMod/bin/
 HkVoiceMod/obj/
 HkVoiceMod/artifacts/
 .tmpinspect/
+build/HkVoiceMod.Local.props
 
 # Sherpa model files are expected to be tracked via git-lfs when checked in

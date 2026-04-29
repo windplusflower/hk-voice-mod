@@ -1,0 +1,25 @@
+<Project>
+  <PropertyGroup>
+    <!--
+      Developer setup:
+      1. Copy this file to build/HkVoiceMod.Local.props.
+      2. Set HkGameDir to a real Hollow Knight installation root.
+      3. Leave HkManagedDir / HkModsDir / SatchelDllPath commented unless your layout is non-standard.
+
+      Notes:
+      - This mod now builds only against a real game install; stub references are not used.
+      - Assembly-CSharp.dll from the game provides the Hollow Knight Modding API types used by the mod.
+      - Satchel is expected by default at $(HkModsDir)\Satchel\Satchel.dll on Windows, or the equivalent native path on Linux.
+      - README stays player-facing; developer build instructions live in these XML comments.
+    -->
+    <!-- Required: point to a real Hollow Knight installation directory. -->
+    <HkGameDir>D:\SteamLibrary\steamapps\common\Hollow Knight</HkGameDir>
+
+    <!-- Linux example: /home/your-user/.local/share/Steam/steamapps/common/Hollow Knight -->
+
+    <!-- Optional overrides. Leave commented unless your layout is non-standard. -->
+    <!-- <HkManagedDir>D:\SteamLibrary\steamapps\common\Hollow Knight\hollow_knight_Data\Managed</HkManagedDir> -->
+    <!-- <HkModsDir>D:\SteamLibrary\steamapps\common\Hollow Knight\hollow_knight_Data\Managed\Mods</HkModsDir> -->
+    <!-- <SatchelDllPath>D:\SteamLibrary\steamapps\common\Hollow Knight\hollow_knight_Data\Managed\Mods\Satchel\Satchel.dll</SatchelDllPath> -->
+  </PropertyGroup>
+</Project>

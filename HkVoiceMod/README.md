@@ -4,20 +4,33 @@
 
 ## 构建
 
-当前仓库现在只支持**真实 Hollow Knight 安装构建**。默认游戏目录已经指向本机：
+当前仓库只支持**真实 Hollow Knight 安装构建**，不再依赖环境变量、硬编码本机路径或 stub。
 
-```text
-D:\SteamLibrary\steamapps\common\Hollow Knight
-```
-
-如果你的游戏装在别处，构建时覆盖 `GameDir` 即可。
+首次在一台新机器上构建时，先创建本地配置文件：
 
 ```bash
-dotnet build HkVoiceMod/HkVoiceMod.csproj
-dotnet build HkVoiceMod/HkVoiceMod.csproj -p:GameDir="C:\\Program Files (x86)\\Steam\\steamapps\\common\\Hollow Knight"
+cp build/HkVoiceMod.Local.props.example build/HkVoiceMod.Local.props
 ```
 
-构建前会强校验真实游戏 DLL 是否存在；找不到 `Assembly-CSharp.dll` / `Assembly-CSharp-firstpass.dll` 时会直接报错，而不会再回退到 stub。
+然后编辑 `build/HkVoiceMod.Local.props`，至少填写真实的 `HkGameDir`。默认情况下：
+
+- `HkManagedDir` 会自动解析为 `HkGameDir/hollow_knight_Data/Managed`
+- `HkModsDir` 会自动解析为 `HkManagedDir/Mods`
+- `SatchelDllPath` 会自动解析为 `HkModsDir/Satchel/Satchel.dll`
+
+如果你的目录布局不标准，再按需取消注释这些 override。
+
+填好本地配置后直接构建：
+
+```bash
+dotnet build hk-voice-mod.sln -nologo
+```
+
+构建前会强校验本地配置和真实依赖：
+
+- 缺少 `build/HkVoiceMod.Local.props` 会直接报错，并提示复制 example。
+- 找不到真实 `Assembly-CSharp.dll` / `Assembly-CSharp-firstpass.dll` / `Satchel.dll` 会直接报错。
+- 不会回退到 stub，也不依赖 `HK_GAME_DIR` 或 `-p:GameDir=...` 之类的临时命令行覆盖。
 
 ## 运行时依赖
 
@@ -63,7 +76,7 @@ HkVoiceMod/artifacts/package/HkVoiceMod/
 构建完成后，整个打包目录还会自动同步到游戏安装目录：
 
 ```text
-D:\SteamLibrary\steamapps\common\Hollow Knight\hollow_knight_Data\Managed\Mods\HkVoiceMod\
+<HkGameDir>/hollow_knight_Data/Managed/Mods/HkVoiceMod/
 ```
 
 这样构建完成后就可以直接打开游戏验证，无需再手动复制 mod 文件。

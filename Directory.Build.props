@@ -1,0 +1,37 @@
+<Project>
+  <!--
+    Developer build contract:
+    - This repository builds against a real Hollow Knight installation. Stub references are no longer supported.
+    - On a new machine, copy build/HkVoiceMod.Local.props.example to build/HkVoiceMod.Local.props and set HkGameDir.
+    - Only override HkManagedDir / HkModsDir / SatchelDllPath when the local install layout is non-standard.
+    - Dynamic paths are defined here with System.IO.Path.Combine so MSBuild evaluates native separators on both Windows and Linux.
+  -->
+  <PropertyGroup>
+    <HkVoiceBuildDir>$([System.IO.Path]::Combine('$(MSBuildThisFileDirectory)', 'build'))</HkVoiceBuildDir>
+    <HkVoiceLocalBuildPropsFile>$([System.IO.Path]::Combine('$(HkVoiceBuildDir)', 'HkVoiceMod.Local.props'))</HkVoiceLocalBuildPropsFile>
+    <HkVoiceReferenceManifestFile>$([System.IO.Path]::Combine('$(HkVoiceBuildDir)', 'HollowKnight.references.props'))</HkVoiceReferenceManifestFile>
+  </PropertyGroup>
+
+  <Import Project="$(HkVoiceLocalBuildPropsFile)" Condition="Exists('$(HkVoiceLocalBuildPropsFile)')" />
+
+  <PropertyGroup>
+    <!-- Standard Hollow Knight install layout: HkGameDir -> hollow_knight_Data/Managed -> Mods. -->
+    <HkManagedDir Condition="'$(HkManagedDir)' == '' and '$(HkGameDir)' != ''">$([System.IO.Path]::Combine('$(HkGameDir)', 'hollow_knight_Data', 'Managed'))</HkManagedDir>
+    <HkModsDir Condition="'$(HkModsDir)' == '' and '$(HkManagedDir)' != ''">$([System.IO.Path]::Combine('$(HkManagedDir)', 'Mods'))</HkModsDir>
+    <SatchelDllPath Condition="'$(SatchelDllPath)' == '' and '$(HkModsDir)' != ''">$([System.IO.Path]::Combine('$(HkModsDir)', 'Satchel', 'Satchel.dll'))</SatchelDllPath>
+
+    <!-- Real game assemblies. Assembly-CSharp.dll carries the HK Modding API, Modding.Menu, GlobalEnums, HeroActions, InputHandler, and InControl types in the current layout. -->
+    <HkAssemblyCSharpDllPath Condition="'$(HkAssemblyCSharpDllPath)' == '' and '$(HkManagedDir)' != ''">$([System.IO.Path]::Combine('$(HkManagedDir)', 'Assembly-CSharp.dll'))</HkAssemblyCSharpDllPath>
+    <HkAssemblyCSharpFirstpassDllPath Condition="'$(HkAssemblyCSharpFirstpassDllPath)' == '' and '$(HkManagedDir)' != ''">$([System.IO.Path]::Combine('$(HkManagedDir)', 'Assembly-CSharp-firstpass.dll'))</HkAssemblyCSharpFirstpassDllPath>
+    <HkUnityEngineDllPath Condition="'$(HkUnityEngineDllPath)' == '' and '$(HkManagedDir)' != ''">$([System.IO.Path]::Combine('$(HkManagedDir)', 'UnityEngine.dll'))</HkUnityEngineDllPath>
+    <HkUnityEngineCoreModuleDllPath Condition="'$(HkUnityEngineCoreModuleDllPath)' == '' and '$(HkManagedDir)' != ''">$([System.IO.Path]::Combine('$(HkManagedDir)', 'UnityEngine.CoreModule.dll'))</HkUnityEngineCoreModuleDllPath>
+    <HkUnityEngineTextRenderingModuleDllPath Condition="'$(HkUnityEngineTextRenderingModuleDllPath)' == '' and '$(HkManagedDir)' != ''">$([System.IO.Path]::Combine('$(HkManagedDir)', 'UnityEngine.TextRenderingModule.dll'))</HkUnityEngineTextRenderingModuleDllPath>
+    <HkUnityEngineUIModuleDllPath Condition="'$(HkUnityEngineUIModuleDllPath)' == '' and '$(HkManagedDir)' != ''">$([System.IO.Path]::Combine('$(HkManagedDir)', 'UnityEngine.UIModule.dll'))</HkUnityEngineUIModuleDllPath>
+    <HkUnityEngineInputLegacyModuleDllPath Condition="'$(HkUnityEngineInputLegacyModuleDllPath)' == '' and '$(HkManagedDir)' != ''">$([System.IO.Path]::Combine('$(HkManagedDir)', 'UnityEngine.InputLegacyModule.dll'))</HkUnityEngineInputLegacyModuleDllPath>
+    <HkUnityEngineAnimationModuleDllPath Condition="'$(HkUnityEngineAnimationModuleDllPath)' == '' and '$(HkManagedDir)' != ''">$([System.IO.Path]::Combine('$(HkManagedDir)', 'UnityEngine.AnimationModule.dll'))</HkUnityEngineAnimationModuleDllPath>
+    <HkUnityEngineUIDllPath Condition="'$(HkUnityEngineUIDllPath)' == '' and '$(HkManagedDir)' != ''">$([System.IO.Path]::Combine('$(HkManagedDir)', 'UnityEngine.UI.dll'))</HkUnityEngineUIDllPath>
+    <HkUnityTimelineDllPath Condition="'$(HkUnityTimelineDllPath)' == '' and '$(HkManagedDir)' != ''">$([System.IO.Path]::Combine('$(HkManagedDir)', 'Unity.Timeline.dll'))</HkUnityTimelineDllPath>
+  </PropertyGroup>
+
+  <Import Project="$(HkVoiceReferenceManifestFile)" Condition="Exists('$(HkVoiceReferenceManifestFile)')" />
+</Project>

@@ -1,4 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Packaging/deploy contract:
+    - Build against a real Hollow Knight install configured through build/HkVoiceMod.Local.props.
+    - Keep README player-facing; developer setup notes live in build/*.props comments.
+    - StagePackage and DeployToGameMods intentionally use MSBuild tasks plus Path.Combine-derived paths so the same project evaluates on Windows and Linux without shell-specific path rules.
+  -->
   <PropertyGroup>
     <TargetFramework>net472</TargetFramework>
     <LangVersion>latest</LangVersion>
@@ -9,15 +15,18 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <Deterministic>true</Deterministic>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
-    <GameDir Condition="'$(GameDir)' == '' and '$(HK_GAME_DIR)' != ''">$(HK_GAME_DIR)</GameDir>
-    <GameDir Condition="'$(GameDir)' == ''">D:\SteamLibrary\steamapps\common\Hollow Knight</GameDir>
-    <GameManagedDir Condition="'$(GameManagedDir)' == ''">$(GameDir)\hollow_knight_Data\Managed</GameManagedDir>
-    <GameModsDir Condition="'$(GameModsDir)' == ''">$(GameManagedDir)\Mods</GameModsDir>
-    <PackageRoot>$(MSBuildProjectDirectory)\artifacts\package\$(AssemblyName)</PackageRoot>
-    <ModelAssetsDir>$(PackageRoot)\assets\sherpa-kws-cn</ModelAssetsDir>
-    <NativeWinX64AssetsDir>$(PackageRoot)\native\win-x64</NativeWinX64AssetsDir>
-    <NativeWinX86AssetsDir>$(PackageRoot)\native\win-x86</NativeWinX86AssetsDir>
-    <DeployModDir>$(GameModsDir)\$(AssemblyName)</DeployModDir>
+    <UseHkVoiceLocalGameReferences>true</UseHkVoiceLocalGameReferences>
+    <PackageRoot>$([System.IO.Path]::Combine('$(MSBuildProjectDirectory)', 'artifacts', 'package', '$(AssemblyName)'))</PackageRoot>
+    <ModelAssetsDir>$([System.IO.Path]::Combine('$(PackageRoot)', 'assets', 'sherpa-kws-cn'))</ModelAssetsDir>
+    <NativeWinX64AssetsDir>$([System.IO.Path]::Combine('$(PackageRoot)', 'native', 'win-x64'))</NativeWinX64AssetsDir>
+    <NativeWinX86AssetsDir>$([System.IO.Path]::Combine('$(PackageRoot)', 'native', 'win-x86'))</NativeWinX86AssetsDir>
+    <DeployModDir>$([System.IO.Path]::Combine('$(HkModsDir)', '$(AssemblyName)'))</DeployModDir>
+    <SherpaSourceAssetsDir>$([System.IO.Path]::Combine('$(MSBuildProjectDirectory)', 'assets', 'sherpa-kws-cn'))</SherpaSourceAssetsDir>
+    <ProjectReadmePath>$([System.IO.Path]::Combine('$(MSBuildProjectDirectory)', 'README.md'))</ProjectReadmePath>
+    <SherpaWinX64OnnxRuntimePath>$([System.IO.Path]::Combine('$(Pkgorg_k2fsa_sherpa_onnx_runtime_win-x64)', 'runtimes', 'win-x64', 'native', 'onnxruntime.dll'))</SherpaWinX64OnnxRuntimePath>
+    <SherpaWinX64SherpaApiPath>$([System.IO.Path]::Combine('$(Pkgorg_k2fsa_sherpa_onnx_runtime_win-x64)', 'runtimes', 'win-x64', 'native', 'sherpa-onnx-c-api.dll'))</SherpaWinX64SherpaApiPath>
+    <SherpaWinX86OnnxRuntimePath>$([System.IO.Path]::Combine('$(Pkgorg_k2fsa_sherpa_onnx_runtime_win-x86)', 'runtimes', 'win-x86', 'native', 'onnxruntime.dll'))</SherpaWinX86OnnxRuntimePath>
+    <SherpaWinX86SherpaApiPath>$([System.IO.Path]::Combine('$(Pkgorg_k2fsa_sherpa_onnx_runtime_win-x86)', 'runtimes', 'win-x86', 'native', 'sherpa-onnx-c-api.dll'))</SherpaWinX86SherpaApiPath>
     <NoWarn>$(NoWarn);1591</NoWarn>
   </PropertyGroup>
 
@@ -30,104 +39,67 @@
     <PackageReference Include="org.k2fsa.sherpa.onnx.runtime.win-x86" Version="1.12.36" GeneratePathProperty="true" PrivateAssets="All" ExcludeAssets="all" />
   </ItemGroup>
 
-  <Target Name="ValidateGameInstall" BeforeTargets="PrepareForBuild">
-    <Error Condition="!Exists('$(GameDir)')"
-           Text="Hollow Knight GameDir does not exist: $(GameDir). Override it with -p:GameDir=... if needed." />
-    <Error Condition="!Exists('$(GameManagedDir)\Assembly-CSharp.dll')"
-           Text="Real Hollow Knight Assembly-CSharp.dll was not found under $(GameManagedDir)." />
-    <Error Condition="!Exists('$(GameManagedDir)\Assembly-CSharp-firstpass.dll')"
-           Text="Real Hollow Knight Assembly-CSharp-firstpass.dll was not found under $(GameManagedDir)." />
-    <Error Condition="!Exists('$(GameManagedDir)\UnityEngine.dll') and !Exists('$(GameManagedDir)\UnityEngine.CoreModule.dll')"
-           Text="Unity engine assemblies were not found under $(GameManagedDir)." />
-  </Target>
-
-  <ItemGroup>
-    <Reference Include="Assembly-CSharp">
-      <HintPath>$(GameManagedDir)\Assembly-CSharp.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="Assembly-CSharp-firstpass">
-      <HintPath>$(GameManagedDir)\Assembly-CSharp-firstpass.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="UnityEngine" Condition="Exists('$(GameManagedDir)\UnityEngine.dll')">
-      <HintPath>$(GameManagedDir)\UnityEngine.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="UnityEngine.CoreModule" Condition="Exists('$(GameManagedDir)\UnityEngine.CoreModule.dll')">
-      <HintPath>$(GameManagedDir)\UnityEngine.CoreModule.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="UnityEngine.TextRenderingModule" Condition="Exists('$(GameManagedDir)\UnityEngine.TextRenderingModule.dll')">
-      <HintPath>$(GameManagedDir)\UnityEngine.TextRenderingModule.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="UnityEngine.UIModule" Condition="Exists('$(GameManagedDir)\UnityEngine.UIModule.dll')">
-      <HintPath>$(GameManagedDir)\UnityEngine.UIModule.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="UnityEngine.InputLegacyModule" Condition="Exists('$(GameManagedDir)\UnityEngine.InputLegacyModule.dll')">
-      <HintPath>$(GameManagedDir)\UnityEngine.InputLegacyModule.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="UnityEngine.AnimationModule" Condition="Exists('$(GameManagedDir)\UnityEngine.AnimationModule.dll')">
-      <HintPath>$(GameManagedDir)\UnityEngine.AnimationModule.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="UnityEngine.UI" Condition="Exists('$(GameManagedDir)\UnityEngine.UI.dll')">
-      <HintPath>$(GameManagedDir)\UnityEngine.UI.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="Unity.Timeline" Condition="Exists('$(GameManagedDir)\Unity.Timeline.dll')">
-      <HintPath>$(GameManagedDir)\Unity.Timeline.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="Satchel" Condition="Exists('$(GameModsDir)\Satchel\Satchel.dll')">
-      <HintPath>$(GameModsDir)\Satchel\Satchel.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-  </ItemGroup>
-
   <Target Name="StagePackage" AfterTargets="Build">
+    <PropertyGroup>
+      <_TargetAssemblyPdbPath>$([System.IO.Path]::Combine('$(TargetDir)', '$(AssemblyName).pdb'))</_TargetAssemblyPdbPath>
+    </PropertyGroup>
+
     <ItemGroup>
-      <SherpaWinX64NativeFiles Include="$(Pkgorg_k2fsa_sherpa_onnx_runtime_win-x64)\runtimes\win-x64\native\onnxruntime.dll" Condition="Exists('$(Pkgorg_k2fsa_sherpa_onnx_runtime_win-x64)\runtimes\win-x64\native\onnxruntime.dll')" />
-      <SherpaWinX64NativeFiles Include="$(Pkgorg_k2fsa_sherpa_onnx_runtime_win-x64)\runtimes\win-x64\native\sherpa-onnx-c-api.dll" Condition="Exists('$(Pkgorg_k2fsa_sherpa_onnx_runtime_win-x64)\runtimes\win-x64\native\sherpa-onnx-c-api.dll')" />
-      <SherpaWinX86NativeFiles Include="$(Pkgorg_k2fsa_sherpa_onnx_runtime_win-x86)\runtimes\win-x86\native\onnxruntime.dll" Condition="Exists('$(Pkgorg_k2fsa_sherpa_onnx_runtime_win-x86)\runtimes\win-x86\native\onnxruntime.dll')" />
-      <SherpaWinX86NativeFiles Include="$(Pkgorg_k2fsa_sherpa_onnx_runtime_win-x86)\runtimes\win-x86\native\sherpa-onnx-c-api.dll" Condition="Exists('$(Pkgorg_k2fsa_sherpa_onnx_runtime_win-x86)\runtimes\win-x86\native\sherpa-onnx-c-api.dll')" />
+      <!-- Keep recursive globs literal inside the target ItemGroup. MSBuild expands these during execution, after Build has produced TargetDir/package inputs. -->
+      <SherpaWinX64NativeFiles Include="$(SherpaWinX64OnnxRuntimePath)" Condition="Exists('$(SherpaWinX64OnnxRuntimePath)')" />
+      <SherpaWinX64NativeFiles Include="$(SherpaWinX64SherpaApiPath)" Condition="Exists('$(SherpaWinX64SherpaApiPath)')" />
+      <SherpaWinX86NativeFiles Include="$(SherpaWinX86OnnxRuntimePath)" Condition="Exists('$(SherpaWinX86OnnxRuntimePath)')" />
+      <SherpaWinX86NativeFiles Include="$(SherpaWinX86SherpaApiPath)" Condition="Exists('$(SherpaWinX86SherpaApiPath)')" />
       <RuntimePackageFiles Include="$(TargetDir)**/*"
-                           Exclude="$(TargetDir)$(AssemblyName).dll;$(TargetDir)$(AssemblyName).pdb;$(TargetDir)runtimes/**/*" />
-      <SherpaModelFiles Include="$(MSBuildProjectDirectory)\assets\sherpa-kws-cn\**\*" />
+                           Exclude="$(TargetPath);$(_TargetAssemblyPdbPath);$(TargetDir)runtimes/**/*" />
+      <SherpaModelFiles Include="$(SherpaSourceAssetsDir)/**/*" />
+      <PackagedRuntimeFiles Include="@(RuntimePackageFiles)">
+        <DestinationPath>$([System.IO.Path]::Combine('$(PackageRoot)', '%(RuntimePackageFiles.RecursiveDir)', '%(RuntimePackageFiles.Filename)%(RuntimePackageFiles.Extension)'))</DestinationPath>
+      </PackagedRuntimeFiles>
+      <PackagedSherpaWinX64NativeFiles Include="@(SherpaWinX64NativeFiles)">
+        <DestinationPath>$([System.IO.Path]::Combine('$(NativeWinX64AssetsDir)', '%(SherpaWinX64NativeFiles.Filename)%(SherpaWinX64NativeFiles.Extension)'))</DestinationPath>
+      </PackagedSherpaWinX64NativeFiles>
+      <PackagedSherpaWinX86NativeFiles Include="@(SherpaWinX86NativeFiles)">
+        <DestinationPath>$([System.IO.Path]::Combine('$(NativeWinX86AssetsDir)', '%(SherpaWinX86NativeFiles.Filename)%(SherpaWinX86NativeFiles.Extension)'))</DestinationPath>
+      </PackagedSherpaWinX86NativeFiles>
+      <PackagedSherpaModelFiles Include="@(SherpaModelFiles)">
+        <DestinationPath>$([System.IO.Path]::Combine('$(ModelAssetsDir)', '%(SherpaModelFiles.RecursiveDir)', '%(SherpaModelFiles.Filename)%(SherpaModelFiles.Extension)'))</DestinationPath>
+      </PackagedSherpaModelFiles>
     </ItemGroup>
 
     <RemoveDir Directories="$(PackageRoot)" Condition="Exists('$(PackageRoot)')" />
     <MakeDir Directories="$(PackageRoot);$(ModelAssetsDir);$(NativeWinX64AssetsDir);$(NativeWinX86AssetsDir)" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PackageRoot)" />
-    <Copy SourceFiles="$(TargetDir)$(AssemblyName).pdb" DestinationFolder="$(PackageRoot)" Condition="Exists('$(TargetDir)$(AssemblyName).pdb')" />
-    <Copy SourceFiles="@(RuntimePackageFiles)"
-          DestinationFiles="@(RuntimePackageFiles->'$(PackageRoot)\%(RecursiveDir)%(Filename)%(Extension)')"
+    <Copy SourceFiles="$(_TargetAssemblyPdbPath)" DestinationFolder="$(PackageRoot)" Condition="Exists('$(_TargetAssemblyPdbPath)')" />
+    <Copy SourceFiles="@(PackagedRuntimeFiles)"
+          DestinationFiles="@(PackagedRuntimeFiles->'%(DestinationPath)')"
           SkipUnchangedFiles="true" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\README.md" DestinationFolder="$(PackageRoot)" />
-    <Copy SourceFiles="@(SherpaWinX64NativeFiles)"
-          DestinationFiles="@(SherpaWinX64NativeFiles->'$(NativeWinX64AssetsDir)\%(Filename)%(Extension)')"
+    <Copy SourceFiles="$(ProjectReadmePath)" DestinationFolder="$(PackageRoot)" />
+    <Copy SourceFiles="@(PackagedSherpaWinX64NativeFiles)"
+          DestinationFiles="@(PackagedSherpaWinX64NativeFiles->'%(DestinationPath)')"
           SkipUnchangedFiles="true" />
-    <Copy SourceFiles="@(SherpaWinX86NativeFiles)"
-          DestinationFiles="@(SherpaWinX86NativeFiles->'$(NativeWinX86AssetsDir)\%(Filename)%(Extension)')"
+    <Copy SourceFiles="@(PackagedSherpaWinX86NativeFiles)"
+          DestinationFiles="@(PackagedSherpaWinX86NativeFiles->'%(DestinationPath)')"
           SkipUnchangedFiles="true" />
-    <Copy SourceFiles="@(SherpaModelFiles)"
-          DestinationFiles="@(SherpaModelFiles->'$(ModelAssetsDir)\%(RecursiveDir)%(Filename)%(Extension)')"
+    <Copy SourceFiles="@(PackagedSherpaModelFiles)"
+          DestinationFiles="@(PackagedSherpaModelFiles->'%(DestinationPath)')"
           SkipUnchangedFiles="true" />
   </Target>
 
-  <Target Name="DeployToGameMods" AfterTargets="StagePackage">
+  <Target Name="DeployToGameMods" AfterTargets="StagePackage" DependsOnTargets="StagePackage">
     <ItemGroup>
-      <PackagedModFiles Include="$(PackageRoot)\**\*" />
+      <!-- Same rule here: keep the recursive package glob on the item Include so Deploy sees files created by StagePackage. -->
+      <PackagedModFiles Include="$(PackageRoot)/**/*" />
+      <DeployedModFiles Include="@(PackagedModFiles)">
+        <DestinationPath>$([System.IO.Path]::Combine('$(DeployModDir)', '%(PackagedModFiles.RecursiveDir)', '%(PackagedModFiles.Filename)%(PackagedModFiles.Extension)'))</DestinationPath>
+      </DeployedModFiles>
     </ItemGroup>
 
-    <MakeDir Directories="$(GameModsDir)" Condition="!Exists('$(GameModsDir)')" />
+    <MakeDir Directories="$(HkModsDir)" Condition="!Exists('$(HkModsDir)')" />
     <RemoveDir Directories="$(DeployModDir)" Condition="Exists('$(DeployModDir)')" />
     <MakeDir Directories="$(DeployModDir)" />
-    <Copy SourceFiles="@(PackagedModFiles)"
-          DestinationFiles="@(PackagedModFiles->'$(DeployModDir)\%(RecursiveDir)%(Filename)%(Extension)')"
+    <Copy SourceFiles="@(DeployedModFiles)"
+          DestinationFiles="@(DeployedModFiles->'%(DestinationPath)')"
           SkipUnchangedFiles="true" />
     <Message Importance="high" Text="Deployed $(AssemblyName) to $(DeployModDir)" />
   </Target>

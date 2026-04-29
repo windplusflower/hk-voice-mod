@@ -1,0 +1,123 @@
+<Project>
+  <!--
+    Real dependency manifest for Hollow Knight builds.
+    - Required references come from the game's Managed directory and from Mods/Satchel/Satchel.dll.
+    - Modding / Modding.Menu / GlobalEnums / HeroActions / InputHandler / InControl resolve from Assembly-CSharp.dll in the current HK Modding API layout.
+    - Reference paths are sourced from Directory.Build.props so the same manifest evaluates with native separators on Windows and Linux.
+  -->
+  <ItemGroup Condition="'$(UseHkVoiceLocalGameReferences)' == 'true'">
+    <HkVoiceRealReference Include="Assembly-CSharp">
+      <Path>$(HkAssemblyCSharpDllPath)</Path>
+      <Required>true</Required>
+      <Private>false</Private>
+      <ErrorHint>Check HkManagedDir in build/HkVoiceMod.Local.props.</ErrorHint>
+    </HkVoiceRealReference>
+    <HkVoiceRealReference Include="Assembly-CSharp-firstpass">
+      <Path>$(HkAssemblyCSharpFirstpassDllPath)</Path>
+      <Required>true</Required>
+      <Private>false</Private>
+      <ErrorHint>Check HkManagedDir in build/HkVoiceMod.Local.props.</ErrorHint>
+    </HkVoiceRealReference>
+    <HkVoiceRealReference Include="UnityEngine">
+      <Path>$(HkUnityEngineDllPath)</Path>
+      <Required>false</Required>
+      <Private>false</Private>
+      <ErrorHint>Legacy monolithic UnityEngine.dll should live under HkManagedDir.</ErrorHint>
+    </HkVoiceRealReference>
+    <HkVoiceRealReference Include="UnityEngine.CoreModule">
+      <Path>$(HkUnityEngineCoreModuleDllPath)</Path>
+      <Required>false</Required>
+      <Private>false</Private>
+      <ErrorHint>Modular UnityEngine.CoreModule.dll should live under HkManagedDir.</ErrorHint>
+    </HkVoiceRealReference>
+    <HkVoiceRealReference Include="UnityEngine.TextRenderingModule">
+      <Path>$(HkUnityEngineTextRenderingModuleDllPath)</Path>
+      <Required>false</Required>
+      <Private>false</Private>
+      <ErrorHint>Optional Unity text rendering module for modular Unity installs.</ErrorHint>
+    </HkVoiceRealReference>
+    <HkVoiceRealReference Include="UnityEngine.UIModule">
+      <Path>$(HkUnityEngineUIModuleDllPath)</Path>
+      <Required>false</Required>
+      <Private>false</Private>
+      <ErrorHint>Optional Unity UI module for modular Unity installs.</ErrorHint>
+    </HkVoiceRealReference>
+    <HkVoiceRealReference Include="UnityEngine.InputLegacyModule">
+      <Path>$(HkUnityEngineInputLegacyModuleDllPath)</Path>
+      <Required>false</Required>
+      <Private>false</Private>
+      <ErrorHint>Optional Unity input legacy module for modular Unity installs.</ErrorHint>
+    </HkVoiceRealReference>
+    <HkVoiceRealReference Include="UnityEngine.AnimationModule">
+      <Path>$(HkUnityEngineAnimationModuleDllPath)</Path>
+      <Required>false</Required>
+      <Private>false</Private>
+      <ErrorHint>Optional Unity animation module for modular Unity installs.</ErrorHint>
+    </HkVoiceRealReference>
+    <HkVoiceRealReference Include="UnityEngine.UI">
+      <Path>$(HkUnityEngineUIDllPath)</Path>
+      <Required>false</Required>
+      <Private>false</Private>
+      <ErrorHint>Optional Unity UI assembly for modular Unity installs.</ErrorHint>
+    </HkVoiceRealReference>
+    <HkVoiceRealReference Include="Unity.Timeline">
+      <Path>$(HkUnityTimelineDllPath)</Path>
+      <Required>false</Required>
+      <Private>false</Private>
+      <ErrorHint>Optional Unity timeline assembly.</ErrorHint>
+    </HkVoiceRealReference>
+    <HkVoiceRealReference Include="Satchel">
+      <Path>$(SatchelDllPath)</Path>
+      <Required>true</Required>
+      <Private>false</Private>
+      <ErrorHint>Install Satchel under $(HkModsDir)/Satchel or override SatchelDllPath in build/HkVoiceMod.Local.props.</ErrorHint>
+    </HkVoiceRealReference>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(UseHkVoiceLocalGameReferences)' == 'true'">
+    <Reference Include="Assembly-CSharp" Condition="Exists('$(HkAssemblyCSharpDllPath)')">
+      <HintPath>$(HkAssemblyCSharpDllPath)</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Assembly-CSharp-firstpass" Condition="Exists('$(HkAssemblyCSharpFirstpassDllPath)')">
+      <HintPath>$(HkAssemblyCSharpFirstpassDllPath)</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine" Condition="Exists('$(HkUnityEngineDllPath)')">
+      <HintPath>$(HkUnityEngineDllPath)</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule" Condition="Exists('$(HkUnityEngineCoreModuleDllPath)')">
+      <HintPath>$(HkUnityEngineCoreModuleDllPath)</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.TextRenderingModule" Condition="Exists('$(HkUnityEngineTextRenderingModuleDllPath)')">
+      <HintPath>$(HkUnityEngineTextRenderingModuleDllPath)</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UIModule" Condition="Exists('$(HkUnityEngineUIModuleDllPath)')">
+      <HintPath>$(HkUnityEngineUIModuleDllPath)</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.InputLegacyModule" Condition="Exists('$(HkUnityEngineInputLegacyModuleDllPath)')">
+      <HintPath>$(HkUnityEngineInputLegacyModuleDllPath)</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.AnimationModule" Condition="Exists('$(HkUnityEngineAnimationModuleDllPath)')">
+      <HintPath>$(HkUnityEngineAnimationModuleDllPath)</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UI" Condition="Exists('$(HkUnityEngineUIDllPath)')">
+      <HintPath>$(HkUnityEngineUIDllPath)</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.Timeline" Condition="Exists('$(HkUnityTimelineDllPath)')">
+      <HintPath>$(HkUnityTimelineDllPath)</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Satchel" Condition="Exists('$(SatchelDllPath)')">
+      <HintPath>$(SatchelDllPath)</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>
