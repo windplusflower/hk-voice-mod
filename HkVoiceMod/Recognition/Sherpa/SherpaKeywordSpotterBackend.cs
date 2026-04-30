@@ -7,6 +7,8 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using HkVoiceMod.Commands;
+using HkVoiceMod.Recognition;
+using HkVoiceMod.Recognition.Templates;
 using NAudio.Wave;
 using SherpaOnnx;
 
@@ -33,11 +35,16 @@ namespace HkVoiceMod.Recognition.Sherpa
         private readonly BlockingCollection<byte[]> _audioBuffers = new BlockingCollection<byte[]>(new ConcurrentQueue<byte[]>());
         private readonly Dictionary<string, DateTime> _lastEmittedTriggers = new Dictionary<string, DateTime>(StringComparer.Ordinal);
         private readonly IReadOnlyDictionary<string, VoiceTriggerRef> _triggerLookup;
+        private readonly SpeechSegmentDetector _speechSegmentDetector;
+        private readonly List<float> _activeSegmentSamples = new List<float>(4096);
 
         private ConcurrentQueue<RecognizedTriggerEvent>? _outputQueue;
         private CancellationTokenSource? _cancellationTokenSource;
         private Task? _workerTask;
         private WaveInEvent? _waveInEvent;
+        private VoiceRecognitionTraceWriter? _traceWriter;
+        private VoiceTemplateVerifier? _templateVerifier;
+        private float[]? _recentCompletedSegmentSamples;
         private DateTime _startedUtc;
         private bool _disposed;
 
@@ -56,7 +63,9 @@ namespace HkVoiceMod.Recognition.Sherpa
 
             _settings.EnsureMacroDefaults();
             _settings.NormalizeAndValidateMacroSettings();
+            _settings.NormalizeRecognitionRuntimeSettings();
             _triggerLookup = BuildTriggerLookup(_settings);
+            _speechSegmentDetector = new SpeechSegmentDetector(_settings);
             _logDebug = logDebug ?? (_ => { });
             _logInfo = logInfo ?? (_ => { });
             _logWarn = logWarn ?? (_ => { });
@@ -153,6 +162,8 @@ namespace HkVoiceMod.Recognition.Sherpa
                 SherpaNativeLoader.EnsureLoaded(assemblyDirectory, _logInfo, _logWarn, _logError);
                 var modelPath = _settings.ResolveModelPath(assemblyDirectory);
                 ValidateModelFiles(modelPath);
+                _traceWriter = new VoiceRecognitionTraceWriter(assemblyDirectory, _settings.EnableRecognitionTraceFile, _logWarn);
+                _templateVerifier = VoiceTemplateVerifier.Load(assemblyDirectory, _settings);
 
                 using (var keywordSpotter = new KeywordSpotter(CreateKeywordSpotterConfig(modelPath)))
                 using (var stream = keywordSpotter.CreateStream())
@@ -187,12 +198,18 @@ namespace HkVoiceMod.Recognition.Sherpa
                         keywordSpotter.Decode(stream);
                     }
 
-                    ProcessKeywordResult(keywordSpotter, stream);
+                    ProcessKeywordResult(keywordSpotter, stream, DateTime.UtcNow);
                 }
             }
             catch (Exception ex)
             {
                 _logError($"Sherpa keyword spotting loop crashed: {ex}");
+            }
+            finally
+            {
+                _templateVerifier = null;
+                _traceWriter?.Dispose();
+                _traceWriter = null;
             }
         }
 
@@ -268,6 +285,19 @@ namespace HkVoiceMod.Recognition.Sherpa
         private void ProcessBuffer(KeywordSpotter keywordSpotter, OnlineStream stream, byte[] buffer)
         {
             var samples = ConvertPcm16ToFloat(buffer);
+            var analysisUtc = DateTime.UtcNow;
+            var speechFrameAnalysis = _speechSegmentDetector.AnalyzeFrame(samples, analysisUtc);
+            if (speechFrameAnalysis.SegmentStarted)
+            {
+                _activeSegmentSamples.Clear();
+                _logDebug($"Speech segment started. Rms={speechFrameAnalysis.Rms:0.0000}");
+            }
+
+            if (speechFrameAnalysis.SegmentActive || speechFrameAnalysis.CompletedSegment != null)
+            {
+                _activeSegmentSamples.AddRange(samples);
+            }
+
             stream.AcceptWaveform(_settings.SampleRateHz, samples);
 
             while (keywordSpotter.IsReady(stream))
@@ -275,10 +305,23 @@ namespace HkVoiceMod.Recognition.Sherpa
                 keywordSpotter.Decode(stream);
             }
 
-            ProcessKeywordResult(keywordSpotter, stream);
+            ProcessKeywordResult(keywordSpotter, stream, analysisUtc);
+
+            if (speechFrameAnalysis.CompletedSegment != null)
+            {
+                var completedSegment = speechFrameAnalysis.CompletedSegment;
+                _recentCompletedSegmentSamples = _activeSegmentSamples.ToArray();
+                _activeSegmentSamples.Clear();
+                _traceWriter?.WriteSegmentClosed(completedSegment);
+                _logDebug($"Speech segment #{completedSegment.SegmentId} ended. Voiced={completedSegment.VoicedMilliseconds}ms Total={completedSegment.TotalMilliseconds}ms PeakRms={completedSegment.PeakRms:0.0000} Accepted={completedSegment.HasAcceptedRecognition}");
+                if (_settings.ResetKeywordSpotterOnEndpoint)
+                {
+                    keywordSpotter.Reset(stream);
+                }
+            }
         }
 
-        private void ProcessKeywordResult(KeywordSpotter keywordSpotter, OnlineStream stream)
+        private void ProcessKeywordResult(KeywordSpotter keywordSpotter, OnlineStream stream, DateTime analysisUtc)
         {
             var result = keywordSpotter.GetResult(stream);
             var keyword = NormalizeKeyword(result.Keyword);
@@ -290,6 +333,7 @@ namespace HkVoiceMod.Recognition.Sherpa
             if (!_triggerLookup.TryGetValue(keyword, out var triggerRef))
             {
                 _logWarn($"Ignored non-whitelisted keyword result: '{keyword}'");
+                _traceWriter?.WriteKeywordDecision(analysisUtc, keyword, "ignored-non-whitelisted", RecognitionGateDecision.CreateRejected("non-whitelisted", 0, 0, 0, 0f), string.Empty);
                 keywordSpotter.Reset(stream);
                 return;
             }
@@ -297,12 +341,63 @@ namespace HkVoiceMod.Recognition.Sherpa
             if (ShouldSuppressDuplicate(triggerRef))
             {
                 _logDebug($"Suppressed duplicate keyword '{keyword}' during cooldown window.");
+                _traceWriter?.WriteKeywordDecision(analysisUtc, keyword, "suppressed-duplicate", RecognitionGateDecision.CreateRejected("duplicate-cooldown", 0, 0, 0, 0f), triggerRef.TriggerId);
+                keywordSpotter.Reset(stream);
+                return;
+            }
+
+            var gateDecision = _speechSegmentDetector.EvaluateRecognition(analysisUtc);
+            if (!gateDecision.Accepted)
+            {
+                _logDebug($"Suppressed keyword '{keyword}' because speech gate rejected it: {gateDecision.Reason}.");
+                _traceWriter?.WriteKeywordDecision(analysisUtc, keyword, "suppressed-speech-gate", gateDecision, triggerRef.TriggerId);
+                keywordSpotter.Reset(stream);
+                return;
+            }
+
+            var templateVerification = VerifyWithTemplates(triggerRef, gateDecision);
+            if (templateVerification.HasUsableTemplates && !templateVerification.Accepted)
+            {
+                _logDebug($"Suppressed keyword '{keyword}' because template verifier rejected it: {templateVerification.Reason}. Best={templateVerification.BestDistance:0.0000} Second={templateVerification.SecondDistance:0.0000}");
+                _traceWriter?.WriteKeywordDecision(analysisUtc, keyword, "suppressed-template-verifier", gateDecision, $"{triggerRef.TriggerId}:{templateVerification.Reason}");
                 keywordSpotter.Reset(stream);
                 return;
             }
 
             _outputQueue?.Enqueue(new RecognizedTriggerEvent(triggerRef.TriggerKind, triggerRef.TriggerId, keyword, (float)(DateTime.UtcNow - _startedUtc).TotalSeconds));
+            _traceWriter?.WriteKeywordDecision(analysisUtc, keyword, "accepted", gateDecision, triggerRef.TriggerId);
             keywordSpotter.Reset(stream);
+        }
+
+        private TemplateVerificationDecision VerifyWithTemplates(VoiceTriggerRef triggerRef, RecognitionGateDecision gateDecision)
+        {
+            if (_templateVerifier == null)
+            {
+                return TemplateVerificationDecision.CreateSkipped("template-verifier-disabled");
+            }
+
+            var segmentSamples = ResolveSegmentSamples(gateDecision);
+            if (segmentSamples == null || segmentSamples.Length == 0)
+            {
+                return TemplateVerificationDecision.CreateRejected("missing-segment-samples", float.MaxValue, float.MaxValue, 0);
+            }
+
+            return _templateVerifier.Verify(triggerRef.TriggerId, segmentSamples);
+        }
+
+        private float[]? ResolveSegmentSamples(RecognitionGateDecision gateDecision)
+        {
+            if (string.Equals(gateDecision.Reason, "active-segment", StringComparison.Ordinal))
+            {
+                return _activeSegmentSamples.Count == 0 ? null : _activeSegmentSamples.ToArray();
+            }
+
+            if (string.Equals(gateDecision.Reason, "recent-segment", StringComparison.Ordinal))
+            {
+                return _recentCompletedSegmentSamples;
+            }
+
+            return null;
         }
 
         private bool ShouldSuppressDuplicate(VoiceTriggerRef triggerRef)

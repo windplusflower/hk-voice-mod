@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Text;
 using HkVoiceMod.Commands;
 using HkVoiceMod.Menu;
+using HkVoiceMod.Recognition.Templates;
 using Modding;
 using Modding.Menu;
 using UnityEngine;
@@ -21,6 +23,8 @@ namespace HkVoiceMod.UI
         private const float WindowHeight = 880f;
         private const float ModalWidth = 1040f;
         private const float ModalHeight = 600f;
+        private const float TemplateModalWidth = 1120f;
+        private const float TemplateModalHeight = 720f;
         private const float DelayModalWidth = 720f;
         private const float DelayModalHeight = 340f;
         private const float SectionSpacing = 8f;
@@ -60,6 +64,8 @@ namespace HkVoiceMod.UI
         private readonly List<MacroRowWidgets> _macroRows = new List<MacroRowWidgets>();
         private readonly List<RecordingStepRowWidgets> _recordingStepRows = new List<RecordingStepRowWidgets>();
         private readonly List<RecordingTimelineRowModel> _recordingTimelineRows = new List<RecordingTimelineRowModel>();
+        private readonly List<TemplateRowWidgets> _templateRows = new List<TemplateRowWidgets>();
+        private readonly VoiceTemplateRecordingService _templateRecordingService = new VoiceTemplateRecordingService();
         private Font? _font;
         private VoiceSettingsTheme? _theme;
         private HkVoiceMod? _mod;
@@ -79,6 +85,7 @@ namespace HkVoiceMod.UI
         private RectTransform? _macroListContent;
         private GameObject? _modalHost;
         private GameObject? _recordingModal;
+        private GameObject? _templateModal;
         private GameObject? _delayModal;
         private CanvasGroup? _recordingModalCanvasGroup;
         private CanvasGroup? _recordingModalTitleCanvasGroup;
@@ -87,14 +94,20 @@ namespace HkVoiceMod.UI
         private CanvasGroup? _recordingModalStatusCanvasGroup;
         private CanvasGroup? _recordingModalActionsCanvasGroup;
         private RectTransform? _recordingStepListContent;
+        private RectTransform? _templateListContent;
         private Text? _statusText;
         private InputField? _stopWakeWordInput;
         private InputField? _stopThresholdInput;
+        private Text? _stopTemplateSummaryText;
         private InputField? _delayInputField;
         private Text? _recordingTitleText;
         private Text? _recordingHintText;
         private Text? _recordingEmptyText;
         private Text? _recordingStatusText;
+        private Text? _templateTitleText;
+        private Text? _templateHintText;
+        private Text? _templateEmptyText;
+        private Text? _templateStatusText;
         private Text? _delayTitleText;
         private Text? _delayHintText;
         private Button? _recordingStartButton;
@@ -102,11 +115,27 @@ namespace HkVoiceMod.UI
         private Button? _recordingClearButton;
         private Button? _recordingConfirmButton;
         private Button? _recordingCancelButton;
+        private Button? _stopTemplateToggleButton;
+        private Button? _stopTemplateManageButton;
+        private Button? _templateToggleButton;
+        private Button? _templateStartButton;
+        private Button? _templateStopButton;
+        private Button? _templateAddButton;
+        private Button? _templateOverwriteButton;
+        private Button? _templateDeleteButton;
+        private Button? _templateDeleteAllButton;
+        private Button? _templateCloseButton;
+        private Text? _stopTemplateToggleButtonText;
+        private Text? _stopTemplateManageButtonText;
+        private Text? _templateToggleButtonText;
         private VoiceMacroConfig? _recordingMacro;
+        private IVoiceTemplateOwner? _templateOwner;
         private VoiceMacroConfig? _delayMacro;
         private List<VoiceMacroKeyEvent>? _recordingStartSnapshot;
+        private TemplateRecordingResult? _templatePendingRecording;
         private int _delayModalBlockedFrame = -1;
         private string? _editingPairId;
+        private string? _selectedTemplateId;
         private int _editingDelayStepIndex = -1;
         private string _stopThresholdText = string.Empty;
         private bool _isClosingWindow;
@@ -141,10 +170,13 @@ namespace HkVoiceMod.UI
             _draft = VoiceSettingsDraft.FromAppliedSettings(_mod.Settings);
             _stopThresholdText = FormatThresholdText(_draft.PendingStopKeywordConfig.KeywordThreshold);
             _recordingMacro = null;
+            _templateOwner = null;
             _delayMacro = null;
             _recordingStartSnapshot = null;
+            _templatePendingRecording = null;
             _delayModalBlockedFrame = -1;
             _editingPairId = null;
+            _selectedTemplateId = null;
             _editingDelayStepIndex = -1;
             _isClosingWindow = false;
             _hasLoggedRecordingTextProbe = false;
@@ -158,9 +190,15 @@ namespace HkVoiceMod.UI
             ApplyThemeToExistingTree();
             EnsureEventSystem();
             VoiceMacroCaptureService.Instance.StopCapture();
+            _templateRecordingService.Cancel();
             if (_recordingModal != null)
             {
                 _recordingModal.SetActive(false);
+            }
+
+            if (_templateModal != null)
+            {
+                _templateModal.SetActive(false);
             }
 
             if (_delayModal != null)
@@ -247,6 +285,22 @@ namespace HkVoiceMod.UI
                 return;
             }
 
+            if (_templateModal != null && _templateModal.activeInHierarchy)
+            {
+                if (IsBackInputSuppressed())
+                {
+                    return;
+                }
+
+                if (UnityEngine.Input.GetKeyDown(KeyCode.Escape))
+                {
+                    SuppressBackInput();
+                    CloseTemplateModal();
+                }
+
+                return;
+            }
+
             if (IsBackInputSuppressed())
             {
                 return;
@@ -269,6 +323,8 @@ namespace HkVoiceMod.UI
             {
                 _instance = null;
             }
+
+            _templateRecordingService.Dispose();
         }
 
         private void EnsureBuilt()
@@ -388,6 +444,12 @@ namespace HkVoiceMod.UI
 
                 _draft.PendingStopKeywordConfig.KeywordThreshold = -1f;
             }, out _stopThresholdInput);
+            CreateButton(stopRow.transform, "StopTemplateManage", "模板 0 条", SecondaryButtonWidth, SecondaryButtonColor, OpenStopTemplateModal, out _stopTemplateManageButton, out var stopTemplateManageButtonText, true);
+            _stopTemplateManageButtonText = stopTemplateManageButtonText;
+            CreateButton(stopRow.transform, "StopTemplateToggle", "模板辅助", SecondaryButtonWidth, SecondaryButtonColor, ToggleStopTemplateVerification, out _stopTemplateToggleButton, out var stopTemplateToggleButtonText, true);
+            _stopTemplateToggleButtonText = stopTemplateToggleButtonText;
+            _stopTemplateSummaryText = CreateText(stopSection.transform, "StopTemplateSummary", string.Empty, 18, MutedTextColor, FontStyle.Normal, TextAnchor.UpperLeft, TextAnchor.UpperLeft, -1f);
+            ConfigureWrappedAutoHeightText(_stopTemplateSummaryText, 22f);
 
             var macroSection = CreateSection(window.transform, "MacroSection", -1f, true);
             _windowMacroCanvasGroup = AddVisualCanvasGroup(macroSection);
@@ -426,6 +488,7 @@ namespace HkVoiceMod.UI
             _modalHost.SetActive(false);
 
             _recordingModal = BuildRecordingModal(_modalHost.transform);
+            _templateModal = BuildTemplateModal(_modalHost.transform);
             _delayModal = BuildDelayModal(_modalHost.transform);
 
             SetVisible(false);
@@ -487,6 +550,68 @@ namespace HkVoiceMod.UI
             CreateButton(actionRow.transform, "RecordingClear", "清空", SecondaryButtonWidth, DangerButtonColor, ClearRecordingFromButton, out _recordingClearButton, out _, true);
             CreateButton(actionRow.transform, "RecordingConfirm", "确认", SecondaryButtonWidth, PrimaryButtonColor, ConfirmRecordingFromButton, out _recordingConfirmButton, out _, true);
             CreateButton(actionRow.transform, "RecordingCancel", "取消", SecondaryButtonWidth, SecondaryButtonColor, CancelRecordingFromButton, out _recordingCancelButton, out _, true);
+
+            modal.SetActive(false);
+            return modal;
+        }
+
+        private GameObject BuildTemplateModal(Transform parent)
+        {
+            var modal = CreatePanel(parent, "TemplateModal", ModalColor);
+            var modalRect = modal.GetComponent<RectTransform>();
+            modalRect.anchorMin = new Vector2(0.5f, 0.5f);
+            modalRect.anchorMax = new Vector2(0.5f, 0.5f);
+            modalRect.pivot = new Vector2(0.5f, 0.5f);
+            modalRect.sizeDelta = new Vector2(TemplateModalWidth, TemplateModalHeight);
+            modalRect.anchoredPosition = Vector2.zero;
+
+            var modalLayout = modal.AddComponent<VerticalLayoutGroup>();
+            modalLayout.padding = new RectOffset(24, 24, 22, 22);
+            modalLayout.spacing = 14f;
+            modalLayout.childControlWidth = true;
+            modalLayout.childControlHeight = true;
+            modalLayout.childForceExpandWidth = true;
+            modalLayout.childForceExpandHeight = false;
+
+            _templateTitleText = CreateText(modal.transform, "TemplateTitle", "模板管理", 34, TextColor, FontStyle.Bold, TextAnchor.MiddleLeft, TextAnchor.MiddleLeft, 44f);
+            _templateHintText = CreateText(modal.transform, "TemplateHint", "模板只做辅助判断证据；无模板时仍走主路径。录音期间会临时暂停语音识别后端以独占麦克风。", 22, MutedTextColor, FontStyle.Normal, TextAnchor.UpperLeft, TextAnchor.MiddleLeft, -1f);
+            ConfigureWrappedAutoHeightText(_templateHintText, 52f);
+
+            var toggleRow = CreateHorizontalGroup(modal.transform, "TemplateToggleRow", 12f, 56f);
+            CreateText(toggleRow.transform, "TemplateToggleLabel", "模板辅助", 22, TextColor, FontStyle.Bold, TextAnchor.MiddleLeft, TextAnchor.MiddleLeft, 56f, false, 132f);
+            CreateButton(toggleRow.transform, "TemplateToggleButton", "关闭", 180f, SecondaryButtonColor, ToggleCurrentTemplateVerification, out _templateToggleButton, out var templateToggleButtonText, true);
+            _templateToggleButtonText = templateToggleButtonText;
+            CreateSpacer(toggleRow.transform, "TemplateToggleSpacer", 1f);
+
+            var listPanel = CreatePanel(modal.transform, "TemplateListPanel", SectionColor);
+            AddLayoutElement(listPanel, -1f, -1f, 1f);
+            var listLayout = listPanel.AddComponent<VerticalLayoutGroup>();
+            listLayout.padding = new RectOffset(16, 16, 16, 16);
+            listLayout.spacing = 10f;
+            listLayout.childControlWidth = true;
+            listLayout.childControlHeight = true;
+            listLayout.childForceExpandWidth = true;
+            listLayout.childForceExpandHeight = false;
+
+            CreateText(listPanel.transform, "TemplateListLabel", "当前模板", 24, TextColor, FontStyle.Bold, TextAnchor.MiddleLeft, TextAnchor.MiddleLeft, 30f);
+            var templateScroll = CreateScrollView(listPanel.transform, "TemplateScroll", out var templateContent, 0f);
+            AddLayoutElement(templateScroll, -1f, -1f, 1f);
+            _templateListContent = templateContent;
+            _templateEmptyText = CreateText(templateContent, "TemplateEmptyText", "暂无模板；点击“开始录制”并停止后，可新增为辅助模板。", 20, MutedTextColor, FontStyle.Normal, TextAnchor.UpperLeft, TextAnchor.UpperLeft, -1f);
+            ConfigureWrappedAutoHeightText(_templateEmptyText, 32f);
+
+            _templateStatusText = CreateText(modal.transform, "TemplateStatus", string.Empty, 22, MutedTextColor, FontStyle.Normal, TextAnchor.UpperLeft, TextAnchor.MiddleLeft, -1f);
+            ConfigureWrappedAutoHeightText(_templateStatusText, 52f);
+
+            var actionRow = CreateHorizontalGroup(modal.transform, "TemplateActions", 12f, 60f, new RectOffset(0, 0, 4, 0));
+            CreateSpacer(actionRow.transform, "TemplateActionSpacer", 1f);
+            CreateButton(actionRow.transform, "TemplateStart", "开始录制", 150f, PrimaryButtonColor, StartTemplateRecording, out _templateStartButton, out _, true);
+            CreateButton(actionRow.transform, "TemplateStop", "停止录制", 150f, SecondaryButtonColor, StopTemplateRecording, out _templateStopButton, out _, true);
+            CreateButton(actionRow.transform, "TemplateAdd", "新增模板", 150f, PrimaryButtonColor, AddTemplateFromRecording, out _templateAddButton, out _, true);
+            CreateButton(actionRow.transform, "TemplateOverwrite", "覆盖选中", 150f, SecondaryButtonColor, OverwriteSelectedTemplateFromRecording, out _templateOverwriteButton, out _, true);
+            CreateButton(actionRow.transform, "TemplateDelete", "删除选中", 150f, DangerButtonColor, DeleteSelectedTemplate, out _templateDeleteButton, out _, true);
+            CreateButton(actionRow.transform, "TemplateDeleteAll", "删除全部", 150f, DangerButtonColor, DeleteAllTemplates, out _templateDeleteAllButton, out _, true);
+            CreateButton(actionRow.transform, "TemplateClose", "关闭", 140f, SecondaryButtonColor, CloseTemplateModal, out _templateCloseButton, out _, true);
 
             modal.SetActive(false);
             return modal;
@@ -1078,7 +1203,9 @@ namespace HkVoiceMod.UI
             }, out var thresholdInput);
             SetInputFieldText(thresholdInput, _draft != null ? _draft.GetPendingThresholdText(macro.Id) : string.Empty);
 
-            CreateButton(topRow.transform, $"MacroRecord-{macro.Id}", "录制", SecondaryButtonWidth, PrimaryButtonColor, () => OpenRecordingModal(macro), out var recordButtonText, true);
+            CreateButton(topRow.transform, $"MacroRecord-{macro.Id}", "动作录制", SecondaryButtonWidth, PrimaryButtonColor, () => OpenRecordingModal(macro), out var recordButtonText, true);
+            CreateButton(topRow.transform, $"MacroTemplateManage-{macro.Id}", "模板 0 条", SecondaryButtonWidth, SecondaryButtonColor, () => OpenTemplateModal(macro), out var templateButtonText, true);
+            CreateButton(topRow.transform, $"MacroTemplateToggle-{macro.Id}", "模板辅助", SecondaryButtonWidth, SecondaryButtonColor, () => ToggleTemplateVerification(macro), out var templateToggleButtonText, true);
             CreateButton(topRow.transform, $"MacroDelete-{macro.Id}", "删除", DeleteButtonWidth, DangerButtonColor, () => DeleteMacro(macro.Id), out _, true);
 
             var summaryText = CreateText(rowRoot.transform, $"MacroSummary-{macro.Id}", string.Empty, 20, MutedTextColor, FontStyle.Normal, TextAnchor.UpperLeft, TextAnchor.UpperLeft, -1f);
@@ -1090,7 +1217,9 @@ namespace HkVoiceMod.UI
                 Macro = macro,
                 Root = rowRoot,
                 SummaryText = summaryText,
-                RecordButtonText = recordButtonText
+                RecordButtonText = recordButtonText,
+                TemplateButtonText = templateButtonText,
+                TemplateToggleButtonText = templateToggleButtonText
             };
         }
 
@@ -1152,6 +1281,12 @@ namespace HkVoiceMod.UI
             if (_recordingModal != null && _recordingModal.activeInHierarchy)
             {
                 CancelRecordingFromButton();
+                return;
+            }
+
+            if (_templateModal != null && _templateModal.activeInHierarchy)
+            {
+                CloseTemplateModal();
                 return;
             }
 
@@ -1324,6 +1459,224 @@ namespace HkVoiceMod.UI
             _pendingTransitionCoroutine = StartCoroutine(CloseRecordingModalWithTransition());
         }
 
+        private void ToggleCurrentTemplateVerification()
+        {
+            if (_templateOwner == null)
+            {
+                return;
+            }
+
+            ToggleTemplateVerification(_templateOwner);
+        }
+
+        private void ToggleTemplateVerification(IVoiceTemplateOwner owner)
+        {
+            if (owner == null)
+            {
+                return;
+            }
+
+            owner.EnableTemplateVerification = !owner.EnableTemplateVerification;
+            RefreshDynamicContent();
+        }
+
+        private void ToggleStopTemplateVerification()
+        {
+            if (_draft == null)
+            {
+                return;
+            }
+
+            ToggleTemplateVerification(_draft.PendingStopKeywordConfig);
+        }
+
+        private void OpenStopTemplateModal()
+        {
+            if (_draft == null)
+            {
+                return;
+            }
+
+            OpenTemplateModal(_draft.PendingStopKeywordConfig);
+        }
+
+        private void OpenTemplateModal(IVoiceTemplateOwner owner)
+        {
+            if (_mod == null || _templateModal == null || _modalHost == null || owner == null)
+            {
+                return;
+            }
+
+            CancelPendingTransition();
+            VoiceMacroCaptureService.Instance.StopCapture();
+            _templateRecordingService.Cancel();
+            _templateOwner = owner;
+            _templatePendingRecording = null;
+            _selectedTemplateId = ResolvePreferredTemplateId(owner);
+            _mod.SuspendVoiceBackendForExclusiveCapture();
+            if (_templateTitleText != null)
+            {
+                _templateTitleText.text = $"模板管理：{owner.TemplateDisplayName}";
+            }
+
+            _modalHost.SetActive(true);
+            _templateModal.SetActive(true);
+            if (_recordingModal != null)
+            {
+                _recordingModal.SetActive(false);
+            }
+
+            if (_delayModal != null)
+            {
+                _delayModal.SetActive(false);
+            }
+
+            SetWindowPageVisible(false);
+            RefreshTemplateRows();
+            RefreshDynamicContent();
+        }
+
+        private void CloseTemplateModal()
+        {
+            _templateRecordingService.Cancel();
+            _templatePendingRecording = null;
+            _templateOwner = null;
+            _selectedTemplateId = null;
+            _mod?.ResumeVoiceBackendAfterExclusiveCapture();
+
+            if (_templateModal != null)
+            {
+                _templateModal.SetActive(false);
+            }
+
+            SetWindowPageVisible(true);
+            HideModalHostIfIdle();
+            RefreshDynamicContent();
+            SelectGameObject(null);
+        }
+
+        private void StartTemplateRecording()
+        {
+            if (_templateOwner == null || _mod == null)
+            {
+                return;
+            }
+
+            try
+            {
+                _templateRecordingService.Start(_mod.Settings);
+                _templatePendingRecording = null;
+                RefreshDynamicContent();
+            }
+            catch (Exception ex)
+            {
+                SetStatus($"模板录音启动失败：{ex.Message}", true);
+                RefreshDynamicContent();
+            }
+        }
+
+        private void StopTemplateRecording()
+        {
+            if (_templateOwner == null || _mod == null)
+            {
+                return;
+            }
+
+            try
+            {
+                _templatePendingRecording = _templateRecordingService.Stop(_mod.Settings);
+                RefreshDynamicContent();
+            }
+            catch (Exception ex)
+            {
+                SetStatus($"模板录音停止失败：{ex.Message}", true);
+                RefreshDynamicContent();
+            }
+        }
+
+        private void AddTemplateFromRecording()
+        {
+            if (_templateOwner == null || _mod == null || _templatePendingRecording == null || !_templatePendingRecording.HasAudio)
+            {
+                return;
+            }
+
+            try
+            {
+                var assemblyDirectory = ResolveAssemblyDirectory();
+                var template = VoiceTemplateStorage.SaveTemplate(assemblyDirectory, _templateOwner, _templateOwner.WakeWord, _templatePendingRecording.PcmBytes, _templatePendingRecording.SampleRateHz);
+                _templateOwner.Templates.Add(template);
+                _selectedTemplateId = template.TemplateId;
+                _templatePendingRecording = null;
+                RefreshTemplateRows();
+                RefreshDynamicContent();
+            }
+            catch (Exception ex)
+            {
+                SetStatus($"保存模板失败：{ex.Message}", true);
+            }
+        }
+
+        private void OverwriteSelectedTemplateFromRecording()
+        {
+            if (_templateOwner == null || _mod == null || _templatePendingRecording == null || !_templatePendingRecording.HasAudio)
+            {
+                return;
+            }
+
+            var template = FindSelectedTemplate(_templateOwner);
+            if (template == null)
+            {
+                return;
+            }
+
+            try
+            {
+                VoiceTemplateStorage.OverwriteTemplate(ResolveAssemblyDirectory(), template, _templateOwner.TemplateOwnerId, _templateOwner.WakeWord, _templatePendingRecording.PcmBytes, _templatePendingRecording.SampleRateHz);
+                _templatePendingRecording = null;
+                RefreshTemplateRows();
+                RefreshDynamicContent();
+            }
+            catch (Exception ex)
+            {
+                SetStatus($"覆盖模板失败：{ex.Message}", true);
+            }
+        }
+
+        private void DeleteSelectedTemplate()
+        {
+            if (_templateOwner == null || string.IsNullOrWhiteSpace(_selectedTemplateId))
+            {
+                return;
+            }
+
+            for (var index = _templateOwner.Templates.Count - 1; index >= 0; index--)
+            {
+                if (string.Equals(_templateOwner.Templates[index].TemplateId, _selectedTemplateId, StringComparison.Ordinal))
+                {
+                    _templateOwner.Templates.RemoveAt(index);
+                }
+            }
+
+            _selectedTemplateId = ResolvePreferredTemplateId(_templateOwner);
+            RefreshTemplateRows();
+            RefreshDynamicContent();
+        }
+
+        private void DeleteAllTemplates()
+        {
+            if (_templateOwner == null)
+            {
+                return;
+            }
+
+            _templateOwner.Templates.Clear();
+            _selectedTemplateId = null;
+            _templatePendingRecording = null;
+            RefreshTemplateRows();
+            RefreshDynamicContent();
+        }
+
         private void ConfirmDelayInput()
         {
             if (_draft == null || _delayMacro == null || _delayInputField == null)
@@ -1388,16 +1741,26 @@ namespace HkVoiceMod.UI
             CancelPendingReveal();
             CancelPendingTransition();
             VoiceMacroCaptureService.Instance.StopCapture();
+            _templateRecordingService.Cancel();
+            _mod?.ResumeVoiceBackendAfterExclusiveCapture();
             _recordingMacro = null;
+            _templateOwner = null;
             _delayMacro = null;
             _recordingStartSnapshot = null;
+            _templatePendingRecording = null;
             _delayModalBlockedFrame = -1;
             _editingPairId = null;
+            _selectedTemplateId = null;
             _editingDelayStepIndex = -1;
 
             if (_delayModal != null)
             {
                 _delayModal.SetActive(false);
+            }
+
+            if (_templateModal != null)
+            {
+                _templateModal.SetActive(false);
             }
 
             if (_recordingModal != null)
@@ -1443,7 +1806,9 @@ namespace HkVoiceMod.UI
             for (var index = 0; index < _macroRows.Count; index++)
             {
                 var row = _macroRows[index];
-                row.RecordButtonText.text = VoiceMacroCaptureService.Instance.IsCapturing(row.Macro.Id) ? "录制中" : "录制";
+                row.RecordButtonText.text = VoiceMacroCaptureService.Instance.IsCapturing(row.Macro.Id) ? "录制中" : "动作录制";
+                row.TemplateButtonText.text = BuildTemplateButtonLabel(row.Macro);
+                row.TemplateToggleButtonText.text = row.Macro.EnableTemplateVerification ? "模板辅助: 开" : "模板辅助: 关";
                 row.SummaryText.text = BuildMacroSummaryText(row.Macro);
             }
 
@@ -1503,6 +1868,73 @@ namespace HkVoiceMod.UI
                 }
             }
 
+            if (_draft != null && _stopTemplateSummaryText != null)
+            {
+                _stopTemplateSummaryText.text = BuildTemplateSummaryLabel(_draft.PendingStopKeywordConfig);
+            }
+
+            if (_stopTemplateManageButtonText != null && _draft != null)
+            {
+                _stopTemplateManageButtonText.text = BuildTemplateButtonLabel(_draft.PendingStopKeywordConfig);
+            }
+
+            if (_stopTemplateToggleButtonText != null && _draft != null)
+            {
+                _stopTemplateToggleButtonText.text = _draft.PendingStopKeywordConfig.EnableTemplateVerification ? "模板辅助: 开" : "模板辅助: 关";
+            }
+
+            if (_templateOwner != null)
+            {
+                RefreshTemplateRows();
+
+                if (_templateToggleButtonText != null)
+                {
+                    _templateToggleButtonText.text = _templateOwner.EnableTemplateVerification ? "已启用" : "已关闭";
+                }
+
+                if (_templateStatusText != null)
+                {
+                    _templateStatusText.text = BuildTemplateStatusText(_templateOwner);
+                }
+
+                var hasSelection = FindSelectedTemplate(_templateOwner) != null;
+                var hasPendingRecording = _templatePendingRecording != null && _templatePendingRecording.HasAudio;
+                if (_templateToggleButton != null)
+                {
+                    _templateToggleButton.interactable = true;
+                }
+
+                if (_templateStartButton != null)
+                {
+                    _templateStartButton.interactable = !_templateRecordingService.IsRecording;
+                }
+
+                if (_templateStopButton != null)
+                {
+                    _templateStopButton.interactable = _templateRecordingService.IsRecording;
+                }
+
+                if (_templateAddButton != null)
+                {
+                    _templateAddButton.interactable = hasPendingRecording;
+                }
+
+                if (_templateOverwriteButton != null)
+                {
+                    _templateOverwriteButton.interactable = hasPendingRecording && hasSelection;
+                }
+
+                if (_templateDeleteButton != null)
+                {
+                    _templateDeleteButton.interactable = hasSelection;
+                }
+
+                if (_templateDeleteAllButton != null)
+                {
+                    _templateDeleteAllButton.interactable = (_templateOwner.Templates?.Count ?? 0) > 0;
+                }
+            }
+
             if (_draft != null && _delayMacro != null && _delayHintText != null)
             {
                 var pendingMilliseconds = _draft.GetPendingDelayMilliseconds(_delayMacro.Id);
@@ -1513,7 +1945,183 @@ namespace HkVoiceMod.UI
         private string BuildMacroSummaryText(VoiceMacroConfig macro)
         {
             var prefix = VoiceMacroCaptureService.Instance.IsCapturing(macro.Id) ? "录制中：" : "当前宏：";
-            return prefix + VoiceSettingsMenuBuilder.FormatMacroEventSequence(macro, VoiceMacroCaptureService.Instance.Resolver);
+            return prefix + VoiceSettingsMenuBuilder.FormatMacroEventSequence(macro, VoiceMacroCaptureService.Instance.Resolver) + " | " + BuildTemplateSummaryLabel(macro);
+        }
+
+        private string BuildTemplateButtonLabel(IVoiceTemplateOwner owner)
+        {
+            return $"模板 {(owner.Templates?.Count ?? 0)} 条";
+        }
+
+        private string BuildTemplateSummaryLabel(IVoiceTemplateOwner owner)
+        {
+            var templates = owner.Templates ?? new List<VoiceTemplateConfig>();
+            var totalCount = templates.Count;
+            var usableCount = 0;
+            var staleCount = 0;
+            for (var index = 0; index < totalCount; index++)
+            {
+                var template = templates[index];
+                if (IsTemplateUsable(owner, template))
+                {
+                    usableCount++;
+                }
+                else
+                {
+                    staleCount++;
+                }
+            }
+
+            var enabledText = owner.EnableTemplateVerification ? "开" : "关";
+            return $"模板辅助:{enabledText} 总{totalCount} 可用{usableCount} 失效{staleCount}";
+        }
+
+        private string BuildTemplateStatusText(IVoiceTemplateOwner owner)
+        {
+            var summary = BuildTemplateSummaryLabel(owner);
+            if (_templateRecordingService.IsRecording)
+            {
+                return $"{summary}。正在录音；停止后可新增或覆盖模板。";
+            }
+
+            if (_templatePendingRecording != null && _templatePendingRecording.HasAudio)
+            {
+                return $"{summary}。已录到 {_templatePendingRecording.DurationMilliseconds}ms 的模板音频，可新增或覆盖选中模板。";
+            }
+
+            var selectedTemplate = FindSelectedTemplate(owner);
+            if (selectedTemplate != null)
+            {
+                return $"{summary}。已选中模板：{BuildTemplateRowLabel(owner, selectedTemplate)}";
+            }
+
+            return $"{summary}。未选择模板。";
+        }
+
+        private void RefreshTemplateRows()
+        {
+            if (_templateListContent == null || _templateEmptyText == null)
+            {
+                return;
+            }
+
+            for (var index = 0; index < _templateRows.Count; index++)
+            {
+                if (_templateRows[index].Root != null)
+                {
+                    Destroy(_templateRows[index].Root);
+                }
+            }
+
+            _templateRows.Clear();
+            if (_templateOwner == null)
+            {
+                _templateEmptyText.gameObject.SetActive(true);
+                return;
+            }
+
+            var templates = _templateOwner.Templates ?? new List<VoiceTemplateConfig>();
+            _templateEmptyText.gameObject.SetActive(templates.Count == 0);
+            for (var index = 0; index < templates.Count; index++)
+            {
+                var template = templates[index];
+                var row = BuildTemplateRow(_templateListContent, _templateOwner, template, index);
+                _templateRows.Add(row);
+            }
+        }
+
+        private TemplateRowWidgets BuildTemplateRow(RectTransform parent, IVoiceTemplateOwner owner, VoiceTemplateConfig template, int index)
+        {
+            var rowRoot = CreatePanel(parent, $"TemplateRow-{template.TemplateId}", RowColor);
+            AddLayoutElement(rowRoot, -1f, 56f, 0f);
+            var rowLayout = CreateHorizontalLayout(rowRoot.transform, 10f, new RectOffset(12, 12, 8, 8));
+            rowLayout.childControlWidth = true;
+            CreateText(rowRoot.transform, $"TemplateIndex-{template.TemplateId}", $"{index + 1}.", 20, TextColor, FontStyle.Bold, TextAnchor.MiddleLeft, TextAnchor.MiddleLeft, 40f, false, 44f);
+            CreateButton(rowRoot.transform, $"TemplateSelect-{template.TemplateId}", string.Empty, -1f, SecondaryButtonColor, () => SelectTemplate(template.TemplateId), out var button, out var labelText, true);
+            var buttonLayout = button.GetComponent<LayoutElement>();
+            if (buttonLayout != null)
+            {
+                buttonLayout.flexibleWidth = 1f;
+                buttonLayout.minWidth = 560f;
+            }
+
+            labelText.alignment = TextAnchor.MiddleLeft;
+            labelText.resizeTextForBestFit = false;
+            labelText.horizontalOverflow = HorizontalWrapMode.Wrap;
+            labelText.verticalOverflow = VerticalWrapMode.Truncate;
+            labelText.text = BuildTemplateRowLabel(owner, template);
+            button.interactable = !_templateRecordingService.IsRecording;
+            return new TemplateRowWidgets
+            {
+                Root = rowRoot,
+                Button = button,
+                LabelText = labelText,
+                Template = template
+            };
+        }
+
+        private string BuildTemplateRowLabel(IVoiceTemplateOwner owner, VoiceTemplateConfig template)
+        {
+            var status = IsTemplateUsable(owner, template) ? "可用" : "失效";
+            var selected = string.Equals(_selectedTemplateId, template.TemplateId, StringComparison.Ordinal) ? "[已选] " : string.Empty;
+            var recordedWakeWord = VoiceModSettings.NormalizeWakeWord(template.RecordedWakeWord);
+            return $"{selected}{status} | 录制词:{(recordedWakeWord.Length == 0 ? "<空>" : recordedWakeWord)}";
+        }
+
+        private void SelectTemplate(string templateId)
+        {
+            _selectedTemplateId = templateId;
+            RefreshTemplateRows();
+            RefreshDynamicContent();
+        }
+
+        private VoiceTemplateConfig? FindSelectedTemplate(IVoiceTemplateOwner owner)
+        {
+            if (owner?.Templates == null || string.IsNullOrWhiteSpace(_selectedTemplateId))
+            {
+                return null;
+            }
+
+            for (var index = 0; index < owner.Templates.Count; index++)
+            {
+                if (string.Equals(owner.Templates[index].TemplateId, _selectedTemplateId, StringComparison.Ordinal))
+                {
+                    return owner.Templates[index];
+                }
+            }
+
+            return null;
+        }
+
+        private string? ResolvePreferredTemplateId(IVoiceTemplateOwner owner)
+        {
+            if (owner?.Templates == null || owner.Templates.Count == 0)
+            {
+                return null;
+            }
+
+            return owner.Templates[0].TemplateId;
+        }
+
+        private bool IsTemplateUsable(IVoiceTemplateOwner owner, VoiceTemplateConfig template)
+        {
+            if (owner == null || template == null || !template.Enabled || string.IsNullOrWhiteSpace(template.RelativePath))
+            {
+                return false;
+            }
+
+            var normalizedWakeWord = VoiceModSettings.NormalizeWakeWord(owner.WakeWord);
+            if (!string.Equals(VoiceModSettings.NormalizeWakeWord(template.RecordedWakeWord), normalizedWakeWord, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            return VoiceTemplateStorage.TemplateFileExists(ResolveAssemblyDirectory(), template);
+        }
+
+        private string ResolveAssemblyDirectory()
+        {
+            return Path.GetDirectoryName(typeof(HkVoiceMod).Assembly.Location) ?? AppDomain.CurrentDomain.BaseDirectory;
         }
 
         private void SetStatus(string message, bool isError, bool isSuccess = false)
@@ -2046,8 +2654,9 @@ namespace HkVoiceMod.UI
             }
 
             var recordingVisible = _recordingModal != null && _recordingModal.activeInHierarchy;
+            var templateVisible = _templateModal != null && _templateModal.activeInHierarchy;
             var delayVisible = _delayModal != null && _delayModal.activeInHierarchy;
-            _modalHost.SetActive(recordingVisible || delayVisible);
+            _modalHost.SetActive(recordingVisible || templateVisible || delayVisible);
         }
         private bool IsEditingTextInput()
         {
@@ -2813,6 +3422,21 @@ namespace HkVoiceMod.UI
             public Text SummaryText { get; set; } = null!;
 
             public Text RecordButtonText { get; set; } = null!;
+
+            public Text TemplateButtonText { get; set; } = null!;
+
+            public Text TemplateToggleButtonText { get; set; } = null!;
+        }
+
+        private sealed class TemplateRowWidgets
+        {
+            public GameObject Root { get; set; } = null!;
+
+            public Button Button { get; set; } = null!;
+
+            public Text LabelText { get; set; } = null!;
+
+            public VoiceTemplateConfig Template { get; set; } = null!;
         }
 
         private sealed class RecordingStepRowWidgets

@@ -229,6 +229,27 @@ namespace HkVoiceMod.Menu
                 return true;
             }
 
+            if (pendingStop.EnableTemplateVerification != appliedStop.EnableTemplateVerification)
+            {
+                return true;
+            }
+
+            if ((pendingStop.Templates?.Count ?? 0) != (appliedStop.Templates?.Count ?? 0))
+            {
+                return true;
+            }
+
+            if (pendingStop.Templates != null && appliedStop.Templates != null)
+            {
+                for (var index = 0; index < pendingStop.Templates.Count; index++)
+                {
+                    if (TemplateChanged(pendingStop.Templates[index], appliedStop.Templates[index]))
+                    {
+                        return true;
+                    }
+                }
+            }
+
             var pendingMacros = pending.GetOrderedMacroConfigs();
             var appliedMacros = applied.GetOrderedMacroConfigs();
             if (pendingMacros.Count != appliedMacros.Count)
@@ -256,9 +277,26 @@ namespace HkVoiceMod.Menu
                 || !string.Equals(pendingDisplayName, appliedDisplayName, StringComparison.Ordinal)
                 || !string.Equals(VoiceModSettings.NormalizeWakeWord(pending.WakeWord), VoiceModSettings.NormalizeWakeWord(applied.WakeWord), StringComparison.Ordinal)
                 || Math.Abs(pending.KeywordThreshold - applied.KeywordThreshold) > 0.0001f
+                || pending.EnableTemplateVerification != applied.EnableTemplateVerification
                 || pending.IsPreset != applied.IsPreset)
             {
                 return true;
+            }
+
+            if ((pending.Templates?.Count ?? 0) != (applied.Templates?.Count ?? 0))
+            {
+                return true;
+            }
+
+            if (pending.Templates != null && applied.Templates != null)
+            {
+                for (var index = 0; index < pending.Templates.Count; index++)
+                {
+                    if (TemplateChanged(pending.Templates[index], applied.Templates[index]))
+                    {
+                        return true;
+                    }
+                }
             }
 
             if ((pending.KeyEvents?.Count ?? 0) != (applied.KeyEvents?.Count ?? 0))
@@ -299,6 +337,15 @@ namespace HkVoiceMod.Menu
                 || pending.ActionButton != applied.ActionButton
                 || pending.EventKind != applied.EventKind
                 || !string.Equals(pending.PairId, applied.PairId, StringComparison.Ordinal);
+        }
+
+        private static bool TemplateChanged(VoiceTemplateConfig pending, VoiceTemplateConfig applied)
+        {
+            return !string.Equals(pending.TemplateId, applied.TemplateId, StringComparison.Ordinal)
+                || !string.Equals((pending.RelativePath ?? string.Empty).Trim().Replace('\\', '/'), (applied.RelativePath ?? string.Empty).Trim().Replace('\\', '/'), StringComparison.Ordinal)
+                || !string.Equals(VoiceModSettings.NormalizeWakeWord(pending.RecordedWakeWord), VoiceModSettings.NormalizeWakeWord(applied.RecordedWakeWord), StringComparison.Ordinal)
+                || pending.Enabled != applied.Enabled
+                || pending.CreatedUtcTicks != applied.CreatedUtcTicks;
         }
 
         private static List<VoiceMacroKeyEvent> CloneKeyEvents(List<VoiceMacroKeyEvent>? keyEvents)

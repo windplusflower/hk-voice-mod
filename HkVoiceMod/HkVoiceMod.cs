@@ -3,6 +3,7 @@ using System.IO;
 using HkVoiceMod.Commands;
 using HkVoiceMod.Menu;
 using HkVoiceMod.Recognition.Sherpa;
+using HkVoiceMod.Recognition.Templates;
 using Modding;
 using UnityEngine;
 using HkVoiceMod.Runtime;
@@ -70,6 +71,8 @@ namespace HkVoiceMod
             try
             {
                 PrepareSettingsForRuntime(candidate, false);
+                var assemblyDirectory = Path.GetDirectoryName(GetType().Assembly.Location) ?? AppDomain.CurrentDomain.BaseDirectory;
+                candidate.CleanupTemplateFiles(assemblyDirectory);
                 Settings = candidate;
                 _runtimeController?.ApplySettings(Settings);
                 return ApplyVoiceSettingsResult.CreateSuccess("已应用新的宏、停止词与阈值配置，并重启语音识别后端。");
@@ -101,6 +104,16 @@ namespace HkVoiceMod
         internal new void LogError(string message)
         {
             Log($"[ERROR] {message}");
+        }
+
+        internal void SuspendVoiceBackendForExclusiveCapture()
+        {
+            _runtimeController?.SuspendBackend();
+        }
+
+        internal void ResumeVoiceBackendAfterExclusiveCapture()
+        {
+            _runtimeController?.ResumeBackend();
         }
 
         private void EnsureRuntimeController()
@@ -146,10 +159,12 @@ namespace HkVoiceMod
 
             settings.EnsureMacroDefaults();
             settings.NormalizeAndValidateMacroSettings();
+            settings.NormalizeRecognitionRuntimeSettings();
 
             var assemblyDirectory = Path.GetDirectoryName(GetType().Assembly.Location) ?? AppDomain.CurrentDomain.BaseDirectory;
             var compiler = new SherpaKeywordCompiler(new ManagedPinyinProvider());
             compiler.Compile(settings.ResolveModelPath(assemblyDirectory), settings.StopKeywordConfig, settings.GetOrderedMacroConfigs());
+            settings.CleanupTemplateFiles(assemblyDirectory);
         }
     }
 }

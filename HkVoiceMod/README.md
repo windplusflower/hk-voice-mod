@@ -40,6 +40,15 @@ dotnet build hk-voice-mod.sln -nologo
 
 如果需要改成绝对路径，可在 global settings 中设置 `SherpaModelPath`。为防止长音重复触发，同一命令默认还会应用 `300ms` 的简单冷却去重。
 
+当前版本还会在 Sherpa 结果之外额外做一层轻量语音段约束：
+
+- 使用本地 `RMS` 阈值做显式语音段检测
+- 只有落在“足够长的语音段”中的关键词结果才会被接受
+- 单个语音段默认只接受一次关键词，语音段结束后可选重置 Sherpa 内部状态
+- 默认把语音段关闭事件和关键词接受/抑制结果写到 `logs/voice-recognition-trace.tsv`
+
+这层不依赖新模型，目标是先减少“无效静音/噪声段误触发”和“同一口令内重复命中”。
+
 当前仓库已经内置一套可直接运行的中文 Sherpa KWS 资源，来源于官方 `sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01` 模型，并整理为运行时固定文件名。
 
 ## 打包产物

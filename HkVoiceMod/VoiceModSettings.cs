@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using HkVoiceMod.Commands;
+using HkVoiceMod.Recognition.Templates;
 
 namespace HkVoiceMod
 {
@@ -34,6 +35,20 @@ namespace HkVoiceMod
 
         public bool LogRecognizedText { get; set; } = true;
 
+        public bool EnableSpeechSegmentation { get; set; } = true;
+
+        public float VoiceActivityRmsThreshold { get; set; } = 0.008f;
+
+        public int MinimumSpeechMilliseconds { get; set; } = 120;
+
+        public int EndpointSilenceMilliseconds { get; set; } = 180;
+
+        public int PostSpeechAcceptanceMilliseconds { get; set; } = 220;
+
+        public bool ResetKeywordSpotterOnEndpoint { get; set; } = true;
+
+        public bool EnableRecognitionTraceFile { get; set; } = true;
+
         public int MacroStorageVersion { get; set; } = CurrentMacroStorageVersion;
 
         public StopKeywordConfig StopKeywordConfig { get; set; } = global::HkVoiceMod.Commands.StopKeywordConfig.CreateDefault();
@@ -55,6 +70,13 @@ namespace HkVoiceMod
                 CaptureBufferMilliseconds = CaptureBufferMilliseconds,
                 EnableVerboseLogging = EnableVerboseLogging,
                 LogRecognizedText = LogRecognizedText,
+                EnableSpeechSegmentation = EnableSpeechSegmentation,
+                VoiceActivityRmsThreshold = VoiceActivityRmsThreshold,
+                MinimumSpeechMilliseconds = MinimumSpeechMilliseconds,
+                EndpointSilenceMilliseconds = EndpointSilenceMilliseconds,
+                PostSpeechAcceptanceMilliseconds = PostSpeechAcceptanceMilliseconds,
+                ResetKeywordSpotterOnEndpoint = ResetKeywordSpotterOnEndpoint,
+                EnableRecognitionTraceFile = EnableRecognitionTraceFile,
                 MacroStorageVersion = MacroStorageVersion,
                 StopKeywordConfig = StopKeywordConfig?.Clone() ?? global::HkVoiceMod.Commands.StopKeywordConfig.CreateDefault(),
                 MacroConfigs = CloneMacroConfigs(MacroConfigs),
@@ -145,6 +167,7 @@ namespace HkVoiceMod
 
             normalizedWakeWords.Add(normalizedStopWakeWord);
             StopKeywordConfig.WakeWord = normalizedStopWakeWord;
+            StopKeywordConfig.Templates = NormalizeTemplateConfigs("停止词", StopKeywordConfig.Templates);
 
             var ids = new HashSet<string>(StringComparer.Ordinal);
             for (var index = 0; index < MacroConfigs.Count; index++)
@@ -193,6 +216,7 @@ namespace HkVoiceMod
                     throw new InvalidOperationException($"宏 {config.DisplayName} 的阈值必须在 0.01 到 1.00 之间。");
                 }
 
+                config.Templates = NormalizeTemplateConfigs(config.DisplayName, config.Templates);
                 NormalizeMacroKeyEvents(config);
                 ValidateMacroKeyEvents(config);
                 config.WakeWord = normalizedWakeWord;
@@ -228,6 +252,54 @@ namespace HkVoiceMod
                 }
 
                 config.WakeWord = normalizedWakeWord;
+            }
+        }
+
+        public void NormalizeRecognitionRuntimeSettings()
+        {
+            if (ShortPressDurationSeconds < 0.01f || float.IsNaN(ShortPressDurationSeconds) || float.IsInfinity(ShortPressDurationSeconds))
+            {
+                ShortPressDurationSeconds = 0.08f;
+            }
+
+            if (TimedHoldDurationSeconds < 0.05f || float.IsNaN(TimedHoldDurationSeconds) || float.IsInfinity(TimedHoldDurationSeconds))
+            {
+                TimedHoldDurationSeconds = 0.5f;
+            }
+
+            if (DuplicateCommandCooldownMilliseconds < 0)
+            {
+                DuplicateCommandCooldownMilliseconds = 0;
+            }
+
+            if (SampleRateHz < 8000 || SampleRateHz > 48000)
+            {
+                SampleRateHz = 16000;
+            }
+
+            if (CaptureBufferMilliseconds < 10 || CaptureBufferMilliseconds > 250)
+            {
+                CaptureBufferMilliseconds = 50;
+            }
+
+            if (float.IsNaN(VoiceActivityRmsThreshold) || float.IsInfinity(VoiceActivityRmsThreshold) || VoiceActivityRmsThreshold <= 0f || VoiceActivityRmsThreshold > 0.25f)
+            {
+                VoiceActivityRmsThreshold = 0.008f;
+            }
+
+            if (MinimumSpeechMilliseconds < 40 || MinimumSpeechMilliseconds > 2000)
+            {
+                MinimumSpeechMilliseconds = 120;
+            }
+
+            if (EndpointSilenceMilliseconds < 50 || EndpointSilenceMilliseconds > 2000)
+            {
+                EndpointSilenceMilliseconds = 180;
+            }
+
+            if (PostSpeechAcceptanceMilliseconds < 0 || PostSpeechAcceptanceMilliseconds > 2000)
+            {
+                PostSpeechAcceptanceMilliseconds = 220;
             }
         }
 
@@ -278,6 +350,11 @@ namespace HkVoiceMod
         private static bool IsThresholdInRange(float threshold)
         {
             return !float.IsNaN(threshold) && !float.IsInfinity(threshold) && threshold >= 0.01f && threshold <= 1.0f;
+        }
+
+        public void CleanupTemplateFiles(string assemblyDirectory)
+        {
+            VoiceTemplateStorage.CleanupUnreferencedTemplates(assemblyDirectory, this);
         }
 
         private List<VoiceMacroConfig> CreateDefaultEventStreamMacros()
@@ -486,6 +563,49 @@ namespace HkVoiceMod
                     throw new InvalidOperationException($"宏 {config.DisplayName} 的 PairId {pairState.Key} 缺少 Down 事件。");
                 }
             }
+        }
+
+        private static List<VoiceTemplateConfig> NormalizeTemplateConfigs(string ownerDisplayName, List<VoiceTemplateConfig> templates)
+        {
+            if (templates == null)
+            {
+                return new List<VoiceTemplateConfig>();
+            }
+
+            var safeOwnerName = string.IsNullOrWhiteSpace(ownerDisplayName) ? "命令" : ownerDisplayName;
+            var normalizedTemplates = new List<VoiceTemplateConfig>(templates.Count);
+            var templateIds = new HashSet<string>(StringComparer.Ordinal);
+            var relativePaths = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var template in templates)
+            {
+                if (template == null)
+                {
+                    continue;
+                }
+
+                template.TemplateId = (template.TemplateId ?? string.Empty).Trim();
+                template.RelativePath = (template.RelativePath ?? string.Empty).Trim().Replace('\\', '/');
+                template.RecordedWakeWord = NormalizeWakeWord(template.RecordedWakeWord);
+
+                if (template.TemplateId.Length == 0 || template.RelativePath.Length == 0)
+                {
+                    continue;
+                }
+
+                if (!templateIds.Add(template.TemplateId))
+                {
+                    throw new InvalidOperationException($"{safeOwnerName} 存在重复模板 Id：{template.TemplateId}");
+                }
+
+                if (!relativePaths.Add(template.RelativePath))
+                {
+                    throw new InvalidOperationException($"{safeOwnerName} 存在重复模板路径：{template.RelativePath}");
+                }
+
+                normalizedTemplates.Add(template);
+            }
+
+            return normalizedTemplates;
         }
 
         private static bool ContainsSupportedActionButton(global::GlobalEnums.HeroActionButton actionButton)

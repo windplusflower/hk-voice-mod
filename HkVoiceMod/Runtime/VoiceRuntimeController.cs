@@ -17,6 +17,7 @@ namespace HkVoiceMod.Runtime
         private HeroActionInputInjector _inputInjector = new HeroActionInputInjector(new VoiceModSettings());
         private VoiceMacroRunner _macroRunner = new VoiceMacroRunner();
         private IVoiceRecognitionBackend? _backend;
+        private int _backendSuspendDepth;
 
         public void Initialize(HkVoiceMod mod, VoiceModSettings settings)
         {
@@ -29,7 +30,33 @@ namespace HkVoiceMod.Runtime
             _settings = settings?.Clone() ?? new VoiceModSettings();
             _inputInjector.ApplySettings(_settings);
              _macroRunner.ApplySettings(_settings);
+            if (_backendSuspendDepth > 0)
+            {
+                ShutdownBackend();
+                return;
+            }
+
             RestartBackend();
+        }
+
+        public void SuspendBackend()
+        {
+            _backendSuspendDepth++;
+            ShutdownBackend();
+        }
+
+        public void ResumeBackend()
+        {
+            if (_backendSuspendDepth <= 0)
+            {
+                return;
+            }
+
+            _backendSuspendDepth--;
+            if (_backendSuspendDepth == 0)
+            {
+                RestartBackend();
+            }
         }
 
         private void Update()
@@ -92,6 +119,12 @@ namespace HkVoiceMod.Runtime
         private void RestartBackend()
         {
             ShutdownBackend();
+
+            if (_backendSuspendDepth > 0)
+            {
+                _mod?.LogInfo("Voice backend suspended for exclusive capture.");
+                return;
+            }
 
             if (!_settings.Enabled)
             {
